@@ -8,10 +8,10 @@ Author: NightKnight24
 Section: Utilities
 Depends: bash, sudo
 Filename: debs/AntiLagShield_v3.8_rootful.deb
-Size: 89986
-MD5sum: 884002512665e251b213c0e3b84c775f
-SHA1: 4c65ea654936d7df7f71d66ee0b02d0eb3fd1740
-SHA256: b610c8fa7eaa9e4e44e1b95417f23a17792bcca0475a5338690f63ff93019381
+Size: 89996
+MD5sum: 03dc0259fa1440c0e95d5c8645ea9bde
+SHA1: 551f3ff953dd11e4f1462d1f052058e0b61f95a9
+SHA256: 0e6cf2af2be20a5993eee33fabf983bc32c2f47cf0aafcdb0acc625d5ef98713
 
 Package: com.nightknight.antilagshield
 Name: Anti-Lag Shield Pro
@@ -23,8 +23,8 @@ Author: NightKnight24
 Section: Utilities
 Depends: bash, sudo
 Filename: debs/AntiLagShield_v3.8_rootless.deb
-Size: 90090
-MD5sum: ee13a12314ef98db8cc58fba88574db6
-SHA1: d80b6c8c07ecf31e0d9946ffc7ff10d671bb79fa
-SHA256: 8c4e190644a67da80b4c8b9dfcdd33e85470969f3d7b7bdd7b245aeb12ec3038
+Size: 90088
+MD5sum: d5e7465f45256e3f97c7f5edb1e7246b
+SHA1: 09546d6e6d6c2b45d623e6649b69340fc0c7146d
+SHA256: 92f74479f0ff27b56c2b661b60dad2bfecfad7deffe00ccc2fa35a44ddbcc025
 
