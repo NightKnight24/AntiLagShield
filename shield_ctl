@@ -1,7 +1,7 @@
 #!/bin/sh
 # ==============================================================================
-# 🛡️ Anti-Lag Shield Pro v3.7 Controller (Universal iOS & iPadOS 11 - 18 Edition)
-# Supports ALL 64-bit iOS & iPadOS Devices (Rootless Dopamine/palera1n & Rootful)
+# 🛡️ Anti-Lag Shield Pro v3.8 Controller (Universal iOS & iPadOS 11 - 18 Edition)
+# Supports ALL 64-bit iOS & iPadOS Devices (Device Revival & Network Sentinel)
 # ==============================================================================
 
 # Universal shell bootstrap
@@ -95,6 +95,9 @@ BATTERY_HOG_DAEMONS=(
     "com.apple.siriinferenced"
     "com.apple.duetexpertd"
     "com.apple.coreduetd"
+    "com.apple.photoanalysisd"
+    "com.apple.mediaanalysisd"
+    "com.apple.cloudphotod"
 )
 
 apply_battery_saver() {
@@ -136,6 +139,85 @@ purge_inactive_memory() {
     fi
 }
 
+clean_storage_and_caches() {
+    PYTHON_EXEC="${JB}/usr/bin/python3"
+    [ ! -x "$PYTHON_EXEC" ] && PYTHON_EXEC="python3"
+    "$PYTHON_EXEC" - <<'PY_CLEAN_END'
+import os
+
+dirs_to_clean = [
+    '/var/mobile/Library/Logs/CrashReporter',
+    '/var/mobile/Library/Logs/DiagnosticReports',
+    '/var/mobile/Library/Caches/com.apple.AppleMediaServices',
+    '/var/mobile/Library/Caches/GeoServices',
+    '/var/mobile/Library/Caches/CloudKit',
+    '/var/mobile/Library/Caches/com.apple.QuickLook.thumbnailcache',
+    '/var/mobile/Library/Caches/com.apple.rtcreporting',
+    '/var/mobile/Library/Caches/com.apple.routined',
+    '/var/mobile/Library/Caches/com.apple.parsecd',
+    '/var/mobile/Library/Caches/com.apple.geod',
+    '/var/mobile/Library/Caches/com.apple.tipsd',
+    '/var/mobile/Library/Caches/com.apple.Safari.SafeBrowsing',
+    '/var/mobile/Library/Caches/com.apple.iTunesCloud',
+    '/var/mobile/Library/Caches/com.apple.remindd',
+    '/var/log/asl',
+    '/var/tmp',
+]
+
+total_bytes = 0
+file_count = 0
+
+for d in dirs_to_clean:
+    if os.path.exists(d):
+        for root, dirs, files in os.walk(d):
+            for f in files:
+                fp = os.path.join(root, f)
+                try:
+                    sz = os.path.getsize(fp)
+                    os.remove(fp)
+                    total_bytes += sz
+                    file_count += 1
+                except:
+                    pass
+
+mb = total_bytes / (1024 * 1024)
+print(f"CLEANED:{file_count}:{mb:.1f}MB")
+PY_CLEAN_END
+}
+
+manage_turbo() {
+    local cmd="$1"
+    PYTHON_EXEC="${JB}/usr/bin/python3"
+    [ ! -x "$PYTHON_EXEC" ] && PYTHON_EXEC="python3"
+    "$PYTHON_EXEC" - "$cmd" <<'PY_TURBO_END'
+import sys, ctypes
+
+cmd = sys.argv[1] if len(sys.argv) > 1 else "status"
+try:
+    ax = ctypes.cdll.LoadLibrary('/System/Library/PrivateFrameworks/AccessibilityUtilities.framework/AccessibilityUtilities')
+    ax._AXSSetReduceMotionEnabled.argtypes = [ctypes.c_bool]
+    ax._AXSSetEnhanceBackgroundContrastEnabled.argtypes = [ctypes.c_bool]
+    
+    if cmd in ("enable", "on", "1"):
+        ax._AXSSetReduceMotionEnabled(True)
+        ax._AXSSetEnhanceBackgroundContrastEnabled(True)
+        print("TURBO_ENABLED")
+    elif cmd in ("disable", "off", "0"):
+        ax._AXSSetReduceMotionEnabled(False)
+        ax._AXSSetEnhanceBackgroundContrastEnabled(False)
+        print("TURBO_DISABLED")
+    else:
+        motion = bool(ax._AXSReduceMotionEnabled())
+        contrast = bool(ax._AXSEnhanceBackgroundContrastEnabled())
+        if motion and contrast:
+            print("TURBO_ACTIVE")
+        else:
+            print("TURBO_INACTIVE")
+except Exception as e:
+    print(f"TURBO_ERROR:{e}")
+PY_TURBO_END
+}
+
 apply_optimizations() {
     local target_mode="$1"
     resolve_gateway
@@ -172,7 +254,13 @@ apply_optimizations() {
     # 7. Flush DNS resolver cache
     sudo killall -HUP mDNSResponder >/dev/null 2>&1
 
-    # 8. Throttle background indexing & storage churn
+    # 8. Anti-Jetsam Memory Shield & Low-Latency Socket Tuning
+    sudo sysctl -w kern.memorystatus_purge_on_warning=1 >/dev/null 2>&1
+    sudo sysctl -w kern.memorystatus_apps_idle_delay_time=30 >/dev/null 2>&1
+    sudo sysctl -w net.inet.tcp.always_keepalive=1 >/dev/null 2>&1
+    sudo sysctl -w net.inet.tcp.keepidle=30000 >/dev/null 2>&1
+
+    # 9. Throttle background indexing & storage churn
     for bg_daemon in corespotlightd knowledgeconstructiond deleted cloudphotod; do
         BG_PIDS=$(/bin/ps -A -o pid,comm 2>/dev/null | awk -v d="$bg_daemon" '$0 ~ d && !/awk/ {print $1}')
         for bg_p in $BG_PIDS; do
@@ -180,7 +268,7 @@ apply_optimizations() {
         done
     done
 
-    # 9. Kernel TCP / UDP Buffer & TSO Offload Tuning
+    # 10. Kernel TCP / UDP Buffer & TSO Offload Tuning
     if [ "$target_mode" = "gaming" ]; then
         # Gaming: Instant ACK (0ms), TSO Off (Anti-Bufferbloat), Tight Buffers, somaxconn=512
         sudo sysctl -w net.inet.tcp.tso=0 >/dev/null 2>&1
@@ -366,6 +454,14 @@ case "$ACTION" in
     purge)
         purge_inactive_memory
         echo "RAM_PURGED"
+        ;;
+
+    clean|deepclean)
+        clean_storage_and_caches
+        ;;
+
+    turbo)
+        manage_turbo "$2"
         ;;
 
     stremio_status)
@@ -711,7 +807,7 @@ EOF
         ;;
 
     *)
-        echo "Usage: $0 {start [mode] [pid]|start_daemon [mode]|stop|status|purge|stremio_status|battery [enable|disable|status]|config [show|set <ip> <mac>|auto]|run [mode]|daemon [enable|disable|status]}"
+        echo "Usage: $0 {start [mode] [pid]|start_daemon [mode]|stop|status|purge|clean|turbo [enable|disable|status]|stremio_status|battery [enable|disable|status]|config [show|set <ip> <mac>|auto]|run [mode]|daemon [enable|disable|status]}"
         exit 1
         ;;
 esac

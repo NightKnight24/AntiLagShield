@@ -1,7 +1,7 @@
 #!/bin/sh
 # ==============================================================================
-# 🛡️  iPadOS Anti-Lag Shield Pro v3.7 (Universal iOS & iPadOS HUD)  🛡️
-# Supports ALL 64-bit iOS & iPadOS Devices (Rootless Dopamine/palera1n & Rootful)
+# 🛡️  iPadOS Anti-Lag Shield Pro v3.8 (Universal iOS & iPadOS Sentinel)  🛡️
+# Supports ALL 64-bit iOS & iPadOS Devices (Device Revival & Network Engine)
 # ==============================================================================
 
 # Universal shell bootstrap
@@ -75,7 +75,7 @@ resolve_gateway
 
 clear
 echo -e "${CYAN}================================================================${NC}"
-echo -e "${CYAN}🛡️   Anti-Lag Shield Pro v3.7 — Universal Network Sentinel   🛡️${NC}"
+echo -e "${CYAN}🛡️   Anti-Lag Shield Pro v3.8 — Device Revival & Sentinel     🛡️${NC}"
 echo -e "${CYAN}================================================================${NC}"
 echo ""
 echo -e "${BRIGHT_CYAN}Detected Network Configuration:${NC}"
@@ -88,11 +88,28 @@ echo -e "${BRIGHT_CYAN}Select an option:${NC}"
 echo -e "  ${BRIGHT_GREEN}[1] 🎮 Gaming Mode${NC}        — Zero Latency, Instant ACK, TSO Off (Anti-Bufferbloat)"
 echo -e "  ${BRIGHT_MAGENTA}[2] 🎬 Streaming Mode${NC}     — Retina HD Throughput, Stremio Web VIP (Port 11470)"
 echo -e "  ${YELLOW}[3] ⚙️  Configure Gateway${NC}  — Change Gateway IP / MAC (Current: $IP_MODE)"
+echo -e "  ${CYAN}[4] 🧹 Deep Clean Storage${NC} — Purge Stale Crash Logs & Caches (+200+ MB)"
+echo -e "  ${BRIGHT_CYAN}[5] 🚀 Toggle Turbo UI${NC}    — 0ms Touch Response & Bypass GPU Blurs"
 echo ""
-read -t 15 -p "Enter choice [1, 2, or 3] (Default: 2): " USER_CHOICE || USER_CHOICE="2"
+read -t 15 -p "Enter choice [1 - 5] (Default: 2): " USER_CHOICE || USER_CHOICE="2"
 echo ""
 
-if [[ "$USER_CHOICE" == "3" ]]; then
+if [[ "$USER_CHOICE" == "4" ]]; then
+    echo -e "${CYAN}[*] Running Deep Storage & Flash Cache Clean...${NC}"
+    "${JB}/usr/bin/shield_ctl" clean
+    echo -e "${GREEN}[✔] Storage Clean Complete!${NC}"
+    exit 0
+elif [[ "$USER_CHOICE" == "5" ]]; then
+    TURBO_STAT=$("${JB}/usr/bin/shield_ctl" turbo status 2>/dev/null)
+    if [[ "$TURBO_STAT" == "TURBO_ACTIVE" ]]; then
+        "${JB}/usr/bin/shield_ctl" turbo disable
+        echo -e "${YELLOW}[!] Turbo UI Disabled (Default iOS animations & blurs restored).${NC}"
+    else
+        "${JB}/usr/bin/shield_ctl" turbo enable
+        echo -e "${GREEN}[✔] Turbo UI Enabled (0ms touch, GPU blurs bypassed)!${NC}"
+    fi
+    exit 0
+elif [[ "$USER_CHOICE" == "3" ]]; then
     echo -e "${CYAN}[*] Gateway Configuration Menu:${NC}"
     echo -e "  [A] Auto-Detect on this Wi-Fi Network [Default]"
     echo -e "  [M] Enter Custom Gateway IP and MAC Manually"
