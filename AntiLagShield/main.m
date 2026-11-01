@@ -34,7 +34,7 @@ static NSUInteger get_free_memory_mb(void) {
 @property (nonatomic, strong) UISegmentedControl *modeControl;
 @property (nonatomic, strong) UILabel *routerPingLabel;
 @property (nonatomic, strong) UILabel *internetPingLabel;
-@property (nonatomic, strong) UILabel *stremioStatusLabel;
+@property (nonatomic, strong) UILabel *batteryLabel;
 @property (nonatomic, strong) UILabel *ramLabel;
 @property (nonatomic, strong) UIButton *purgeButton;
 @property (nonatomic, strong) UISwitch *daemonSwitch;
@@ -50,8 +50,8 @@ static NSUInteger get_free_memory_mb(void) {
     [super viewDidLoad];
     self.view.backgroundColor = [UIColor colorWithRed:0.04 green:0.05 blue:0.08 alpha:1.0];
     
-    // Prevent screen dimming and Wi-Fi sleep while app is in foreground
-    [UIApplication sharedApplication].idleTimerDisabled = YES;
+    // Enable battery monitoring without draining battery
+    [UIDevice currentDevice].batteryMonitoringEnabled = YES;
     
     self.scrollView = [[UIScrollView alloc] initWithFrame:self.view.bounds];
     self.scrollView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
@@ -73,7 +73,7 @@ static NSUInteger get_free_memory_mb(void) {
     
     // Title
     UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(startX, y, contentW, 30)];
-    titleLabel.text = @"Anti-Lag Shield Pro v3.4";
+    titleLabel.text = @"Anti-Lag Shield Pro v3.5";
     titleLabel.font = [UIFont boldSystemFontOfSize:24];
     titleLabel.textColor = [UIColor whiteColor];
     titleLabel.textAlignment = NSTextAlignmentCenter;
@@ -82,7 +82,7 @@ static NSUInteger get_free_memory_mb(void) {
 
     // Subtitle
     UILabel *subLabel = [[UILabel alloc] initWithFrame:CGRectMake(startX, y, contentW, 20)];
-    subLabel.text = @"Dual Gateway Hardware Lock • Stremio VIP (Port 11470) • TSO Control";
+    subLabel.text = @"Gateway Hardware Lock • Battery Saver • Stremio VIP • Wi-Fi QoS";
     subLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
     subLabel.textColor = [UIColor colorWithRed:0.0 green:0.82 blue:0.95 alpha:0.9];
     subLabel.textAlignment = NSTextAlignmentCenter;
@@ -110,7 +110,7 @@ static NSUInteger get_free_memory_mb(void) {
     [self.scrollView addSubview:self.modeControl];
     y += 52;
     
-    // CARD 1: Live Telemetry & RAM Booster (4 Columns)
+    // CARD 1: Live Telemetry & RAM Booster (4 Columns: Hub 5 | Ping | Battery | RAM)
     UIView *telemetryCard = [[UIView alloc] initWithFrame:CGRectMake(startX, y, contentW, 140)];
     telemetryCard.backgroundColor = [UIColor colorWithRed:0.08 green:0.10 blue:0.14 alpha:0.95];
     telemetryCard.layer.cornerRadius = 16;
@@ -145,18 +145,18 @@ static NSUInteger get_free_memory_mb(void) {
     self.internetPingLabel.textColor = [UIColor colorWithRed:0.75 green:0.45 blue:1.0 alpha:1.0];
     [telemetryCard addSubview:self.internetPingLabel];
 
-    // Stremio Port 11470 VIP
-    UILabel *sTitle = [[UILabel alloc] initWithFrame:CGRectMake(20 + colW * 2, 14, colW, 18)];
-    sTitle.text = @"STREMIO:11470";
-    sTitle.font = [UIFont systemFontOfSize:11 weight:UIFontWeightBold];
-    sTitle.textColor = [UIColor colorWithWhite:0.55 alpha:1.0];
-    [telemetryCard addSubview:sTitle];
+    // Battery Status
+    UILabel *bTitle = [[UILabel alloc] initWithFrame:CGRectMake(20 + colW * 2, 14, colW, 18)];
+    bTitle.text = @"BATTERY";
+    bTitle.font = [UIFont systemFontOfSize:11 weight:UIFontWeightBold];
+    bTitle.textColor = [UIColor colorWithWhite:0.55 alpha:1.0];
+    [telemetryCard addSubview:bTitle];
     
-    self.stremioStatusLabel = [[UILabel alloc] initWithFrame:CGRectMake(20 + colW * 2, 34, colW, 26)];
-    self.stremioStatusLabel.text = @"Ready";
-    self.stremioStatusLabel.font = [UIFont monospacedDigitSystemFontOfSize:16 weight:UIFontWeightBold];
-    self.stremioStatusLabel.textColor = [UIColor colorWithRed:1.0 green:0.65 blue:0.2 alpha:1.0];
-    [telemetryCard addSubview:self.stremioStatusLabel];
+    self.batteryLabel = [[UILabel alloc] initWithFrame:CGRectMake(20 + colW * 2, 34, colW, 26)];
+    self.batteryLabel.text = @"100%";
+    self.batteryLabel.font = [UIFont monospacedDigitSystemFontOfSize:17 weight:UIFontWeightBold];
+    self.batteryLabel.textColor = [UIColor colorWithRed:0.3 green:0.95 blue:0.45 alpha:1.0];
+    [telemetryCard addSubview:self.batteryLabel];
     
     // RAM Status
     UILabel *mTitle = [[UILabel alloc] initWithFrame:CGRectMake(24 + colW * 3, 14, colW, 18)];
@@ -196,12 +196,12 @@ static NSUInteger get_free_memory_mb(void) {
     CGFloat dy = 12;
     NSArray *rows = @[
         @{@"t": @"Hardware Gateway Lock", @"v": @"Virgin Hub 5 (b0:1f:f4:01:5c:60) [Permanent]"},
-        @{@"t": @"LAN Stealth & Pi Defense", @"v": @"TCP/UDP Blackhole • ICMP Redirects Dropped"},
-        @{@"t": @"TSO Anti-Bufferbloat Control", @"v": @"TSO Enabled (Max Throughput)"},
+        @{@"t": @"Wi-Fi Stealth & Pi Defense", @"v": @"TCP/UDP Blackhole • ICMP Redirects Dropped"},
+        @{@"t": @"Battery & Telemetry Shield", @"v": @"Apple Diagnostics & Bloat Daemons Halted (Deep Sleep)"},
         @{@"t": @"Stremio Web Server Engine", @"v": @"Port 11470 VIP • NodeMobile & MediaServer (-20)"},
-        @{@"t": @"TCP / UDP Dynamic Window", @"v": @"16 MB Dynamic Window (somaxconn: 1024)"},
-        @{@"t": @"Wi-Fi Radio & AWDL Shield", @"v": @"Broadcom WMM QoS • AirDrop Scans Paused"},
-        @{@"t": @"DNS & Keep-Awake Shield", @"v": @"Zero Resolver Delay • Sleep & Dimming Prevented"}
+        @{@"t": @"TSO Anti-Bufferbloat Control", @"v": @"TSO Enabled (Retina Throughput)"},
+        @{@"t": @"TCP / UDP Buffer Tuning", @"v": @"6 MB Retina HD Buffer (somaxconn: 512)"},
+        @{@"t": @"Wi-Fi Radio & AWDL Shield", @"v": @"Broadcom WMM QoS • AirDrop Scans Paused"}
     ];
     
     for (NSDictionary *r in rows) {
@@ -215,11 +215,13 @@ static NSUInteger get_free_memory_mb(void) {
         vLbl.text = r[@"v"];
         vLbl.font = [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
         vLbl.textColor = [UIColor whiteColor];
-        if ([r[@"t"] containsString:@"Window"]) {
+        if ([r[@"t"] containsString:@"Buffer Tuning"]) {
             self.bufferLabel = vLbl;
         } else if ([r[@"t"] containsString:@"TSO"]) {
             self.tsoLabel = vLbl;
             vLbl.textColor = [UIColor colorWithRed:0.2 green:0.8 blue:1.0 alpha:1.0];
+        } else if ([r[@"t"] containsString:@"Battery"]) {
+            vLbl.textColor = [UIColor colorWithRed:0.3 green:0.95 blue:0.45 alpha:1.0];
         } else if ([r[@"t"] containsString:@"Stealth"]) {
             vLbl.textColor = [UIColor colorWithRed:0.3 green:0.9 blue:0.5 alpha:1.0];
         } else if ([r[@"t"] containsString:@"Stremio"]) {
@@ -290,6 +292,7 @@ static NSUInteger get_free_memory_mb(void) {
     [self checkDaemonStatus];
     [self applyShield];
     [self updateRAM];
+    [self updateBattery];
     
     self.telemetryTimer = [NSTimer scheduledTimerWithTimeInterval:2.5 target:self selector:@selector(refreshTelemetry) userInfo:nil repeats:YES];
     [self refreshTelemetry];
@@ -302,13 +305,13 @@ static NSUInteger get_free_memory_mb(void) {
 
 - (void)modeChanged:(UISegmentedControl *)sender {
     if (sender.selectedSegmentIndex == 0) {
-        self.tsoLabel.text = @"TSO Enabled (Max Throughput)";
+        self.tsoLabel.text = @"TSO Enabled (Retina Throughput)";
         self.tsoLabel.textColor = [UIColor colorWithRed:0.2 green:0.8 blue:1.0 alpha:1.0];
-        self.bufferLabel.text = @"16 MB Dynamic Window (somaxconn: 1024)";
+        self.bufferLabel.text = @"6 MB Retina HD Buffer (somaxconn: 512)";
     } else {
         self.tsoLabel.text = @"TSO Disabled (0ms Bufferbloat Guard)";
         self.tsoLabel.textColor = [UIColor colorWithRed:0.3 green:0.95 blue:0.4 alpha:1.0];
-        self.bufferLabel.text = @"Instant ACK (0ms) + 4 MB Buffers (somaxconn: 512)";
+        self.bufferLabel.text = @"Instant ACK (0ms) + 2 MB Buffers (somaxconn: 512)";
     }
     [self applyShield];
 }
@@ -388,16 +391,22 @@ static NSUInteger get_free_memory_mb(void) {
     self.ramLabel.text = [NSString stringWithFormat:@"%lu MB", (unsigned long)freeMB];
 }
 
+- (void)updateBattery {
+    float level = [UIDevice currentDevice].batteryLevel;
+    int percent = (level >= 0.0f) ? (int)(level * 100.0f) : 100;
+    BOOL isCharging = ([UIDevice currentDevice].batteryState == UIDeviceBatteryStateCharging || [UIDevice currentDevice].batteryState == UIDeviceBatteryStateFull);
+    self.batteryLabel.text = [NSString stringWithFormat:@"%d%%%@", percent, isCharging ? @" ⚡" : @""];
+}
+
 - (void)refreshTelemetry {
     [self updateRAM];
+    [self updateBattery];
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW, 0), ^{
         run_cmd(@"/var/jb/bin/ping -c 1 -W 400 192.168.0.1 > /tmp/rping.txt 2>/dev/null");
         run_cmd(@"/var/jb/bin/ping -c 1 -W 500 1.1.1.1 > /tmp/iping.txt 2>/dev/null");
-        run_cmd(@"/var/jb/usr/bin/shield_ctl stremio_status > /tmp/stremio_stat.txt 2>/dev/null");
         
         NSString *rStr = [NSString stringWithContentsOfFile:@"/tmp/rping.txt" encoding:NSUTF8StringEncoding error:nil];
         NSString *iStr = [NSString stringWithContentsOfFile:@"/tmp/iping.txt" encoding:NSUTF8StringEncoding error:nil];
-        NSString *sStr = [NSString stringWithContentsOfFile:@"/tmp/stremio_stat.txt" encoding:NSUTF8StringEncoding error:nil];
         
         NSString *rMs = @"-- ms";
         if (rStr && [rStr containsString:@"time="]) {
@@ -415,26 +424,9 @@ static NSUInteger get_free_memory_mb(void) {
             if (parts.count > 0) iMs = [NSString stringWithFormat:@"%@ ms", parts[0]];
         }
         
-        NSString *stremioText = @"Ready";
-        if (sStr && [sStr containsString:@"STREMIO_STREAMS:"]) {
-            NSArray *sParts = [sStr componentsSeparatedByString:@":"];
-            if (sParts.count > 1) {
-                int count = [sParts[1] intValue];
-                if (count > 0) {
-                    stremioText = [NSString stringWithFormat:@"%d Active", count];
-                }
-            }
-        }
-        
         dispatch_async(dispatch_get_main_queue(), ^{
             self.routerPingLabel.text = rMs;
             self.internetPingLabel.text = iMs;
-            self.stremioStatusLabel.text = stremioText;
-            if (![stremioText isEqualToString:@"Ready"]) {
-                self.stremioStatusLabel.textColor = [UIColor colorWithRed:0.2 green:0.95 blue:0.4 alpha:1.0];
-            } else {
-                self.stremioStatusLabel.textColor = [UIColor colorWithRed:1.0 green:0.65 blue:0.2 alpha:1.0];
-            }
         });
     });
 }
@@ -448,7 +440,6 @@ static NSUInteger get_free_memory_mb(void) {
 @implementation AppDelegate
 
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
-    [UIApplication sharedApplication].idleTimerDisabled = YES;
     self.window = [[UIWindow alloc] initWithFrame:[[UIScreen mainScreen] bounds]];
     self.window.rootViewController = [[ShieldViewController alloc] init];
     [self.window makeKeyAndVisible];
