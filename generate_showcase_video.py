@@ -175,7 +175,7 @@ def render_scene_1(frame_idx, total_frames):
     
     return cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
 
-scenes.append((180, render_scene_1))
+scenes.append((240, render_scene_1))
 
 # ==============================================================================
 # SCENE 2: THE PROBLEM WITH OLDER HARDWARE (6 - 13s, 210 frames)
@@ -205,7 +205,7 @@ def render_scene_2(frame_idx, total_frames):
         
     return cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
 
-scenes.append((210, render_scene_2))
+scenes.append((240, render_scene_2))
 
 # ==============================================================================
 # SCENE 3: FEATURE 1 - TURBO UI MODE (13 - 21s, 240 frames)
@@ -520,14 +520,34 @@ for scene_idx, (num_frames, render_fn) in enumerate(scenes):
 out.release()
 print(f"==> Raw video rendered at {OUTPUT_RAW} ({os.path.getsize(OUTPUT_RAW)/(1024*1024):.1f} MB)")
 
-# Transcode to pristine 1080p MP4 using macOS native avconvert
-print("==> Converting to YouTube / Havoc compliant MP4 via avconvert...")
+# Synthesize Soundtrack & Voiceover
+print("==> Generating Cyberpunk Soundtrack & Voice-Over with Auto-Ducking...")
+os.system("python3 /Users/jordanallison/.gemini/antigravity/scratch/ipad-jb/synthesize_soundtrack.py")
+audio_file = "/tmp/master_soundtrack_with_voice.wav"
+
+# Mux Video + Audio using ffmpeg
+print("==> Muxing 1080p Video with Cyberpunk Soundtrack & Voice-Over via FFmpeg...")
 if os.path.exists(FINAL_VIDEO):
     os.remove(FINAL_VIDEO)
-os.system(f"avconvert -p PresetHighestQuality -s {OUTPUT_RAW} -o {FINAL_VIDEO}")
+
+cmd = (
+    f"ffmpeg -y -i {OUTPUT_RAW} -i {audio_file} "
+    f"-c:v libx264 -preset slow -crf 17 -pix_fmt yuv420p "
+    f"-c:a aac -b:a 320k -shortest {FINAL_VIDEO}"
+)
+os.system(cmd)
 
 if os.path.exists(FINAL_VIDEO):
     sz_mb = os.path.getsize(FINAL_VIDEO) / (1024 * 1024)
-    print(f"==> Successfully generated final showcase video: {FINAL_VIDEO} ({sz_mb:.1f} MB)")
+    print(f"==> Successfully generated final showcase video with audio: {FINAL_VIDEO} ({sz_mb:.1f} MB)")
+    
+    # Copy to Desktop, Downloads, and Artifacts
+    for dst in [
+        "/Users/jordanallison/Desktop/AntiLagShield_Showcase.mp4",
+        "/Users/jordanallison/Downloads/AntiLagShield_Showcase.mp4",
+        "/Users/jordanallison/.gemini/antigravity/brain/58a92e58-afdd-43ff-a171-1e809caa3c0b/AntiLagShield_Showcase.mp4"
+    ]:
+        os.system(f"cp {FINAL_VIDEO} {dst}")
+        print(f"  -> Exported to {dst}")
 else:
     print(f"Error: Final video not found at {FINAL_VIDEO}")
