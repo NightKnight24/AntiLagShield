@@ -1,0 +1,481 @@
+#!/var/jb/usr/bin/bash
+# ==============================================================================
+# 🛡️ Anti-Lag Shield Pro v3.4 Controller (iPadOS Rootless)
+# Hardware Gateway Lock, LAN Stealth, Stremio Web Server VIP (Port 11470),
+# TSO Anti-Bufferbloat, Dynamic Buffers, RAM Purge, Broadcom QoS & VIP Renice
+# ==============================================================================
+
+export PATH="/var/jb/usr/bin:/var/jb/bin:/var/jb/usr/sbin:/var/jb/sbin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+
+VIRGIN_HUB_MAC="b0:1f:f4:01:5c:60"
+PI_MAC="d8:3a:dd:cc:42:1c"
+PI_IP="192.168.0.75"
+FALLBACK_ROUTER_IP="192.168.0.1"
+
+STATE_FILE="/var/mobile/Library/Caches/shield_state.txt"
+PID_FILE="/var/mobile/Library/Caches/shield_watchdog.pid"
+DAEMON_PLIST="/var/jb/Library/LaunchDaemons/com.jordan.antilagshield.plist"
+
+ACTION="$1"
+MODE="${2:-streaming}"
+APP_PID="$3"
+
+INTERFACE=$(route -n get default 2>/dev/null | awk '/interface:/ {print $2}')
+[ -z "$INTERFACE" ] && INTERFACE="en0"
+
+ROUTER_IP=$(route -n get default 2>/dev/null | awk '/gateway:/ {print $2}')
+[ -z "$ROUTER_IP" ] && ROUTER_IP="$FALLBACK_ROUTER_IP"
+
+apply_optimizations() {
+    local target_mode="$1"
+
+    # 1. LAN Stealth & Anti-Reconnaissance Blackholing
+    sudo sysctl -w net.inet.tcp.blackhole=2 >/dev/null 2>&1
+    sudo sysctl -w net.inet.udp.blackhole=1 >/dev/null 2>&1
+    sudo sysctl -w net.inet.icmp.drop_redirect=1 >/dev/null 2>&1
+    sudo sysctl -w net.inet.ip.redirect=0 >/dev/null 2>&1
+    sudo sysctl -w net.inet6.icmp6.rediraccept=0 >/dev/null 2>&1
+    sudo sysctl -w net.inet.tcp.drop_synfin=1 >/dev/null 2>&1
+
+    # 2. Dual Hardware Static ARP Lock (Gateway + Pi Isolation)
+    sudo arp -d "$ROUTER_IP" ifscope "$INTERFACE" >/dev/null 2>&1
+    sudo arp -s "$ROUTER_IP" "$VIRGIN_HUB_MAC" ifscope "$INTERFACE" >/dev/null 2>&1
+    if [ "$INTERFACE" != "en0" ]; then
+        sudo arp -d "$ROUTER_IP" ifscope en0 >/dev/null 2>&1
+        sudo arp -s "$ROUTER_IP" "$VIRGIN_HUB_MAC" ifscope en0 >/dev/null 2>&1
+    fi
+    sudo arp -d "$PI_IP" ifscope "$INTERFACE" >/dev/null 2>&1
+    sudo arp -s "$PI_IP" "$PI_MAC" ifscope "$INTERFACE" >/dev/null 2>&1
+
+    # 3. Broadcom Wi-Fi WMM / DSCP VIP QoS Fast-Path
+    sudo sysctl -w net.qos.policy.wifi_enabled=1 >/dev/null 2>&1
+    sudo sysctl -w net.qos.policy.capable_enabled=1 >/dev/null 2>&1
+    sudo sysctl -w net.qos.reset_dscp_to_wifi_ac_map=1 >/dev/null 2>&1
+
+    # 4. Disable AWDL / AirDrop scans during session to eliminate micro-stutters
+    sudo ifconfig awdl0 down >/dev/null 2>&1
+    sudo ifconfig llw0 down >/dev/null 2>&1
+
+    # 5. Flush DNS resolver cache
+    sudo killall -HUP mDNSResponder >/dev/null 2>&1
+
+    # 6. Throttle background indexing & telemetry daemons (Zero Flash/CPU Contention)
+    for bg_daemon in corespotlightd knowledgeconstructiond deleted cloudphotod; do
+        BG_PIDS=$(/bin/ps -A -o pid,comm 2>/dev/null | awk -v d="$bg_daemon" '$0 ~ d && !/awk/ {print $1}')
+        for bg_p in $BG_PIDS; do
+            [ -n "$bg_p" ] && sudo renice 15 -p "$bg_p" >/dev/null 2>&1
+        done
+    done
+
+    # 7. Kernel TCP / UDP Buffer & TSO Offload Tuning
+    if [ "$target_mode" = "gaming" ]; then
+        # Gaming Mode: Instant ACK (0ms), TSO Off (Anti-Bufferbloat), Tight 2-4MB Buffers
+        sudo sysctl -w net.inet.tcp.tso=0 >/dev/null 2>&1
+        sudo sysctl -w net.inet.tcp.delayed_ack=0 >/dev/null 2>&1
+        sudo sysctl -w net.inet.tcp.sendspace=2097152 >/dev/null 2>&1
+        sudo sysctl -w net.inet.tcp.recvspace=2097152 >/dev/null 2>&1
+        sudo sysctl -w net.inet.tcp.autorcvbufmax=4194304 >/dev/null 2>&1
+        sudo sysctl -w net.inet.tcp.autosndbufmax=4194304 >/dev/null 2>&1
+        sudo sysctl -w net.inet.udp.recvspace=4194304 >/dev/null 2>&1
+        sudo sysctl -w net.inet.udp.maxdgram=65535 >/dev/null 2>&1
+        sudo sysctl -w kern.ipc.somaxconn=512 >/dev/null 2>&1
+    else
+        # Streaming & Stremio Web Server Mode: Full Throughput TSO, 16MB Dynamic Buffers, 8MB UDP
+        sudo sysctl -w net.inet.tcp.tso=1 >/dev/null 2>&1
+        sudo sysctl -w net.inet.tcp.delayed_ack=2 >/dev/null 2>&1
+        sudo sysctl -w net.inet.tcp.sendspace=4194304 >/dev/null 2>&1
+        sudo sysctl -w net.inet.tcp.recvspace=8388608 >/dev/null 2>&1
+        sudo sysctl -w net.inet.tcp.autorcvbufmax=16777216 >/dev/null 2>&1
+        sudo sysctl -w net.inet.tcp.autosndbufmax=16777216 >/dev/null 2>&1
+        sudo sysctl -w net.inet.udp.recvspace=8388608 >/dev/null 2>&1
+        sudo sysctl -w net.inet.udp.maxdgram=65535 >/dev/null 2>&1
+        sudo sysctl -w kern.ipc.somaxconn=1024 >/dev/null 2>&1
+    fi
+
+    # 8. Reclaim Inactive Memory (RAM Purge)
+    sudo /var/jb/usr/bin/purge >/dev/null 2>&1
+
+    # 9. Hardware Media & Audio Decoder Boost
+    MS_PID=$(/bin/ps -A -o pid,comm 2>/dev/null | awk '/mediaserverd/ && !/awk/ {print $1}')
+    if [ -n "$MS_PID" ]; then
+        sudo renice -10 -p "$MS_PID" >/dev/null 2>&1
+    fi
+}
+
+revert_optimizations() {
+    # Restore stock TCP / UDP sysctls
+    sudo sysctl -w net.inet.tcp.blackhole=0 >/dev/null 2>&1
+    sudo sysctl -w net.inet.udp.blackhole=0 >/dev/null 2>&1
+    sudo sysctl -w net.inet.tcp.tso=1 >/dev/null 2>&1
+    sudo sysctl -w net.inet.tcp.delayed_ack=3 >/dev/null 2>&1
+    sudo sysctl -w net.inet.tcp.sendspace=131072 >/dev/null 2>&1
+    sudo sysctl -w net.inet.tcp.recvspace=131072 >/dev/null 2>&1
+    sudo sysctl -w net.inet.tcp.autorcvbufmax=2097152 >/dev/null 2>&1
+    sudo sysctl -w net.inet.tcp.autosndbufmax=2097152 >/dev/null 2>&1
+    sudo sysctl -w net.inet.udp.recvspace=786896 >/dev/null 2>&1
+    sudo sysctl -w net.inet.icmp.drop_redirect=0 >/dev/null 2>&1
+    sudo sysctl -w net.inet.ip.redirect=1 >/dev/null 2>&1
+    sudo sysctl -w kern.ipc.somaxconn=128 >/dev/null 2>&1
+
+    # Reset QoS Wi-Fi policy to stock
+    sudo sysctl -w net.qos.policy.wifi_enabled=0 >/dev/null 2>&1
+    sudo sysctl -w net.qos.policy.capable_enabled=0 >/dev/null 2>&1
+    sudo sysctl -w net.qos.reset_dscp_to_wifi_ac_map=0 >/dev/null 2>&1
+
+    # Restore AWDL (AirDrop)
+    sudo ifconfig awdl0 up >/dev/null 2>&1
+    sudo ifconfig llw0 up >/dev/null 2>&1
+
+    # Restore background indexing daemons to normal priority
+    for bg_daemon in corespotlightd knowledgeconstructiond deleted cloudphotod; do
+        BG_PIDS=$(/bin/ps -A -o pid,comm 2>/dev/null | awk -v d="$bg_daemon" '$0 ~ d && !/awk/ {print $1}')
+        for bg_p in $BG_PIDS; do
+            [ -n "$bg_p" ] && sudo renice 0 -p "$bg_p" >/dev/null 2>&1
+        done
+    done
+
+    # Restore mediaserverd priority
+    MS_PID=$(/bin/ps -A -o pid,comm 2>/dev/null | awk '/mediaserverd/ && !/awk/ {print $1}')
+    if [ -n "$MS_PID" ]; then
+        sudo renice 0 -p "$MS_PID" >/dev/null 2>&1
+    fi
+}
+
+case "$ACTION" in
+    start)
+        # Kill any existing standalone watchdog
+        if [ -f "$PID_FILE" ]; then
+            OLD_WPID=$(cat "$PID_FILE" 2>/dev/null)
+            [ -n "$OLD_WPID" ] && kill "$OLD_WPID" 2>/dev/null
+            rm -f "$PID_FILE"
+        fi
+        for p in $(/bin/ps -A -o pid,command 2>/dev/null | awk '/shield_ctl _watchdog/ && !/awk/ {print $1}'); do
+            kill "$p" 2>/dev/null
+        done
+
+        apply_optimizations "$MODE"
+
+        mkdir -p /var/mobile/Library/Caches
+        echo "ACTIVE:$MODE:$APP_PID" > "$STATE_FILE"
+
+        # Spawn background watchdog bound to UI App PID
+        nohup /var/jb/usr/bin/bash /var/jb/usr/bin/shield_ctl _watchdog "$APP_PID" "$ROUTER_IP" "$INTERFACE" "$VIRGIN_HUB_MAC" "$PI_MAC" "$PI_IP" >/dev/null 2>&1 &
+        echo $! > "$PID_FILE"
+
+        echo "SHIELD_STARTED:$MODE"
+        ;;
+
+    start_daemon)
+        apply_optimizations "$MODE"
+
+        mkdir -p /var/mobile/Library/Caches
+        echo "ACTIVE:$MODE:DAEMON" > "$STATE_FILE"
+
+        # Run continuous watchdog loop as foreground process of LaunchDaemon
+        exec /var/jb/usr/bin/shield_ctl _watchdog "DAEMON" "$ROUTER_IP" "$INTERFACE" "$VIRGIN_HUB_MAC" "$PI_MAC" "$PI_IP"
+        ;;
+
+    _watchdog)
+        TARGET_PID="$2"
+        ROUTER="$3"
+        IFACE="$4"
+        VIRGIN_MAC="$5"
+        PI_MAC="$6"
+        PI_IP_ADDR="$7"
+
+        # Comprehensive VIP Process Patterns: Streaming Engine, Stremio Web Server, Media & Gaming
+        VIP_PATTERN="(Stremio|NodeMobile|stremio-runtime|stremio-service|ffmpeg|YouTube|PrimeVideo|Dominguez|Argo|Max-iOS|Netflix|Disney|Twitch|Infuse|VLC|Kodi|Plex|Roblox|PojavLauncher|Minecraft|Flycast|Delta|RetroArch|PPSSPP|Provenance|Moonlight|Sunshine|GeForceNOW|Chiaki|SteamLink|Shadow|Discord)"
+
+        LOOP_COUNT=0
+        while true; do
+            # If bound to a specific UI PID, exit if that app terminates
+            if [ "$TARGET_PID" != "DAEMON" ] && [ -n "$TARGET_PID" ] && [ "$TARGET_PID" -gt 1 ]; then
+                if ! kill -0 "$TARGET_PID" 2>/dev/null; then
+                    break
+                fi
+            fi
+
+            # 1. ARP Table Integrity Check (Anti-Spoof Defense)
+            ARP_ENTRY=$(arp -n "$ROUTER" 2>/dev/null | tr "[:upper:]" "[:lower:]")
+            if [[ "$ARP_ENTRY" == *"$PI_MAC"* ]] || [[ "$ARP_ENTRY" != *"permanent"* ]] || [[ "$ARP_ENTRY" == *"no entry"* ]]; then
+                sudo arp -d "$ROUTER" ifscope "$IFACE" >/dev/null 2>&1
+                sudo arp -s "$ROUTER" "$VIRGIN_MAC" ifscope "$IFACE" >/dev/null 2>&1
+                if [ "$IFACE" != "en0" ]; then
+                    sudo arp -d "$ROUTER" ifscope en0 >/dev/null 2>&1
+                    sudo arp -s "$ROUTER" "$VIRGIN_MAC" ifscope en0 >/dev/null 2>&1
+                fi
+            fi
+
+            # 2. Auto-Renice all streaming, gaming & Stremio web server VIP processes to -20
+            APP_PIDS=$(/bin/ps -A -o pid,command 2>/dev/null | awk -v pat="$VIP_PATTERN" '$0 ~ pat && !/(awk|grep|shield)/ {print $1}')
+            for p in $APP_PIDS; do
+                if [ -n "$p" ] && [ "$p" -gt 1 ]; then
+                    sudo renice -20 -p "$p" >/dev/null 2>&1
+                fi
+            done
+
+            # 3. Keep mediaserverd prioritized
+            MS_PID=$(/bin/ps -A -o pid,comm 2>/dev/null | awk '/mediaserverd/ && !/awk/ {print $1}')
+            if [ -n "$MS_PID" ]; then
+                sudo renice -10 -p "$MS_PID" >/dev/null 2>&1
+            fi
+
+            # Periodic memory refresh every ~2 minutes (40 loops * 3s)
+            LOOP_COUNT=$((LOOP_COUNT + 1))
+            if [ $LOOP_COUNT -ge 40 ]; then
+                sudo /var/jb/usr/bin/purge >/dev/null 2>&1
+                LOOP_COUNT=0
+            fi
+
+            sleep 3
+        done
+
+        # Auto-revert when target app exits (only in non-daemon mode)
+        if [ "$TARGET_PID" != "DAEMON" ]; then
+            /var/jb/usr/bin/shield_ctl stop
+        fi
+        ;;
+
+    stop)
+        # Kill watchdog
+        if [ -f "$PID_FILE" ]; then
+            WPID=$(cat "$PID_FILE" 2>/dev/null)
+            [ -n "$WPID" ] && kill "$WPID" 2>/dev/null
+            rm -f "$PID_FILE"
+        fi
+        for p in $(/bin/ps -A -o pid,command 2>/dev/null | awk '/shield_ctl _watchdog/ && !/awk/ {print $1}'); do
+            kill "$p" 2>/dev/null
+        done
+
+        revert_optimizations
+
+        rm -f "$STATE_FILE"
+        echo "SHIELD_STOPPED"
+        ;;
+
+    purge)
+        sudo /var/jb/usr/bin/purge >/dev/null 2>&1
+        echo "RAM_PURGED"
+        ;;
+
+    stremio_status)
+        # Check active established connections on Stremio Web Server port 11470
+        STREAM_COUNT=$(/var/jb/usr/sbin/netstat -an 2>/dev/null | awk '/11470/ && /ESTABLISHED/ {count++} END {print count+0}')
+        echo "STREMIO_STREAMS:$STREAM_COUNT"
+        ;;
+
+    run|hud|interactive)
+        # Interactive live HUD with real-time telemetry matching Mac v3.4
+        RUN_MODE="${2:-streaming}"
+        apply_optimizations "$RUN_MODE"
+        trap 'revert_optimizations; echo -e "\n\033[1;32m[✔] Defaults restored.\033[0m"; exit 0' SIGHUP SIGINT SIGTERM EXIT
+        export SHIELD_MODE_ENV="$RUN_MODE"
+        export ROUTER_IP_ENV="$ROUTER_IP"
+        export VIRGIN_MAC_ENV="$VIRGIN_HUB_MAC"
+        export PI_MAC_ENV="$PI_MAC"
+        /var/jb/usr/bin/python3 - <<'PY_CLI_END'
+import os, sys, time, subprocess
+
+mode = os.environ.get("SHIELD_MODE_ENV", "streaming")
+router_ip = os.environ.get("ROUTER_IP_ENV", "192.168.0.1")
+virgin_mac = os.environ.get("VIRGIN_MAC_ENV", "b0:1f:f4:01:5c:60")
+pi_mac = os.environ.get("PI_MAC_ENV", "d8:3a:dd:cc:42:1c")
+
+C_RESET = '\033[0m'
+C_GREEN = '\033[0;32m'
+C_BRIGHT_GREEN = '\033[1;32m'
+C_YELLOW = '\033[1;33m'
+C_RED = '\033[0;31m'
+C_CYAN = '\033[1;36m'
+C_MAGENTA = '\033[1;35m'
+C_GRAY = '\033[0;37m'
+
+targets = [
+    "Stremio", "NodeMobile", "node", "ffmpeg", "YouTube", "Netflix", "PrimeVideo",
+    "Disney", "Twitch", "Infuse", "VLC", "Kodi", "Plex", "Roblox", "Minecraft",
+    "Delta", "RetroArch", "PPSSPP", "Moonlight", "GeForceNOW", "Chiaki", "Discord"
+]
+
+mode_tag = "\033[1;32m🎮 GAMING (TSO:Off)\033[0m" if mode == "gaming" else "\033[1;35m🎬 STREAMING (16M VIP)\033[0m"
+
+def get_bytes(iface="en0"):
+    try:
+        out = subprocess.check_output(['/var/jb/usr/sbin/netstat', '-ib', '-I', iface], stderr=subprocess.DEVNULL).decode()
+        for line in out.strip().splitlines()[1:]:
+            p = line.split()
+            if len(p) >= 10 and (p[0] == iface or p[0] == f"<{iface}>" or p[0].startswith(iface)):
+                return int(p[6]), int(p[9])
+    except:
+        pass
+    return 0, 0
+
+def ping(host, t=400):
+    try:
+        out = subprocess.check_output(['/var/jb/bin/ping', '-c', '1', '-W', str(t), host], stderr=subprocess.DEVNULL).decode()
+        for l in out.splitlines():
+            if 'time=' in l:
+                return float(l.split('time=')[1].split()[0])
+    except:
+        pass
+    return None
+
+def fmt(b):
+    if b >= 1048576: return f"{b/1048576:.1f} MB/s"
+    if b >= 1024: return f"{b/1024:.1f} KB/s"
+    return f"{b} B/s"
+
+def col_ping(ms):
+    if ms is None: return f"{C_RED}Timeout{C_RESET}"
+    if ms < 4.0: return f"{C_GREEN}{ms:.1f}ms{C_RESET}"
+    if ms < 15.0: return f"{C_YELLOW}{ms:.1f}ms{C_RESET}"
+    return f"{C_RED}{ms:.1f}ms{C_RESET}"
+
+def check_stremio_clients():
+    try:
+        out = subprocess.check_output(['/var/jb/usr/sbin/netstat', '-an'], stderr=subprocess.DEVNULL).decode()
+        return sum(1 for l in out.splitlines() if '11470' in l and 'ESTABLISHED' in l)
+    except:
+        return 0
+
+def find_active_apps():
+    active = []
+    try:
+        out = subprocess.check_output(['/bin/ps', '-A', '-o', 'pid,command'], stderr=subprocess.DEVNULL).decode()
+        for line in out.splitlines():
+            for t in targets:
+                if t.lower() in line.lower() and not any(x in line for x in ['grep', 'awk', 'shield']):
+                    if t not in active:
+                        active.append(t)
+                        # Renice to -20
+                        pid = line.split()[0]
+                        subprocess.call(['sudo', 'renice', '-20', '-p', pid], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except:
+        pass
+    return active
+
+prev_ib, prev_ob = get_bytes()
+prev_t = time.time()
+loop = 0
+r_ms, i_ms = None, None
+
+print(f"\n{C_CYAN}🛡️   Anti-Lag Shield Pro v3.4 Live Telemetry (Press Ctrl+C to stop)   🛡️{C_RESET}\n")
+
+try:
+    while True:
+        time.sleep(1.0)
+        now_t = time.time()
+        loop += 1
+        cur_ib, cur_ob = get_bytes()
+        dt = now_t - prev_t
+        rx = int((cur_ib - prev_ib) / dt) if dt > 0 and cur_ib >= prev_ib else 0
+        tx = int((cur_ob - prev_ob) / dt) if dt > 0 and cur_ob >= prev_ob else 0
+        prev_ib, prev_ob, prev_t = cur_ib, cur_ob, now_t
+
+        if loop % 2 == 0 or r_ms is None:
+            r_ms = ping(router_ip, 350)
+            i_ms = ping("1.1.1.1", 400)
+
+        active = find_active_apps()
+        stremio_streams = check_stremio_clients()
+
+        ts = time.strftime('%H:%M:%S')
+        r_str = col_ping(r_ms)
+        i_str = col_ping(i_ms)
+        down = f"{C_CYAN}↓ {fmt(rx)}{C_RESET}"
+        up = f"{C_MAGENTA}↑ {fmt(tx)}{C_RESET}"
+
+        if active:
+            stremio_tag = f" [Serving 4K Stream]" if stremio_streams > 0 else ""
+            app_str = f"{C_BRIGHT_GREEN}🚀 {' + '.join(active[:2])}{stremio_tag} (VIP -20){C_RESET}"
+        else:
+            app_str = f"{C_GRAY}Shield Active{C_RESET}"
+
+        print(f"[{ts}] {mode_tag} | 📶 Wi-Fi (en0) | Router: {r_str} | Ping: {i_str} | {down} | {up} | {app_str} | {C_GREEN}🛡️ Hub Locked{C_RESET}")
+        sys.stdout.flush()
+except KeyboardInterrupt:
+    pass
+PY_CLI_END
+        ;;
+
+    daemon)
+        SUB="$2"
+        case "$SUB" in
+            enable)
+                D_MODE="${3:-streaming}"
+                echo "ACTIVE:$D_MODE:DAEMON" > "$STATE_FILE"
+                cat <<EOF | sudo tee "$DAEMON_PLIST" >/dev/null
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.jordan.antilagshield</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/var/jb/usr/bin/bash</string>
+		<string>/var/jb/usr/bin/shield_ctl</string>
+		<string>start_daemon</string>
+		<string>$D_MODE</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>ThrottleInterval</key>
+	<integer>5</integer>
+	<key>StandardOutPath</key>
+	<string>/dev/null</string>
+	<key>StandardErrorPath</key>
+	<string>/dev/null</string>
+</dict>
+</plist>
+EOF
+                sudo chmod 644 "$DAEMON_PLIST"
+                sudo /var/jb/usr/bin/launchctl load -w "$DAEMON_PLIST" >/dev/null 2>&1
+                echo "DAEMON_ENABLED:$D_MODE"
+                ;;
+
+            disable)
+                if [ -f "$DAEMON_PLIST" ]; then
+                    sudo /var/jb/usr/bin/launchctl unload -w "$DAEMON_PLIST" >/dev/null 2>&1
+                    sudo rm -f "$DAEMON_PLIST"
+                fi
+                /var/jb/usr/bin/shield_ctl stop >/dev/null 2>&1
+                echo "DAEMON_DISABLED"
+                ;;
+
+            status)
+                if [ -f "$DAEMON_PLIST" ]; then
+                    echo "DAEMON_ACTIVE"
+                else
+                    echo "DAEMON_INACTIVE"
+                fi
+                ;;
+        esac
+        ;;
+
+    status)
+        if [ -f "$STATE_FILE" ]; then
+            SAVED_PID=$(awk -F: '{print $3}' "$STATE_FILE" 2>/dev/null)
+            if [ "$SAVED_PID" = "DAEMON" ]; then
+                cat "$STATE_FILE"
+            elif [ -n "$SAVED_PID" ] && [ "$SAVED_PID" -gt 1 ]; then
+                if kill -0 "$SAVED_PID" 2>/dev/null; then
+                    cat "$STATE_FILE"
+                else
+                    /var/jb/usr/bin/shield_ctl stop >/dev/null 2>&1
+                    echo "INACTIVE"
+                fi
+            else
+                cat "$STATE_FILE"
+            fi
+        else
+            echo "INACTIVE"
+        fi
+        ;;
+
+    *)
+        echo "Usage: $0 {start [mode] [pid]|start_daemon [mode]|stop|status|purge|stremio_status|run [mode]|daemon [enable|disable|status]}"
+        exit 1
+        ;;
+esac
