@@ -361,8 +361,8 @@ static NSUInteger get_free_memory_mb(void) {
     }
     y += 327;
     
-    // CARD 3: VIP Prioritized Apps Shelf
-    UIView *vipCard = [[UIView alloc] initWithFrame:CGRectMake(startX, y, contentW, 115)];
+    // CARD 4: VIP Prioritized Apps & Gamepads Shelf
+    UIView *vipCard = [[UIView alloc] initWithFrame:CGRectMake(startX, y, contentW, 130)];
     vipCard.backgroundColor = [UIColor colorWithRed:0.08 green:0.10 blue:0.14 alpha:0.95];
     vipCard.layer.cornerRadius = 16;
     vipCard.layer.borderWidth = 1.0;
@@ -375,19 +375,19 @@ static NSUInteger get_free_memory_mb(void) {
     vipTitle.textColor = [UIColor colorWithWhite:0.5 alpha:1.0];
     [vipCard addSubview:vipTitle];
     
-    UILabel *vipList = [[UILabel alloc] initWithFrame:CGRectMake(16, 32, contentW - 32, 44)];
-    vipList.text = @"🎬 Stremio • NodeMobile • YouTube • Netflix • Prime Video • Disney+\n🎮 Roblox • Minecraft • Delta • RetroArch • Moonlight • GeForceNOW";
-    vipList.numberOfLines = 2;
-    vipList.font = [UIFont systemFontOfSize:12 weight:UIFontWeightMedium];
+    UILabel *vipList = [[UILabel alloc] initWithFrame:CGRectMake(16, 30, contentW - 32, 60)];
+    vipList.text = @"🎬 Stremio • NodeMobile • YouTube • Netflix • Prime Video • Disney+\n🎮 Roblox • Minecraft • Delta • RetroArch • Moonlight • GeForceNOW\n🕹️ Bluetooth Controllers (Xbox, DualSense, Switch Pro, MFi Gamepads)";
+    vipList.numberOfLines = 3;
+    vipList.font = [UIFont systemFontOfSize:11 weight:UIFontWeightMedium];
     vipList.textColor = [UIColor colorWithRed:0.85 green:0.9 blue:1.0 alpha:0.9];
     [vipCard addSubview:vipList];
     
-    UILabel *vipSub = [[UILabel alloc] initWithFrame:CGRectMake(16, 82, contentW - 32, 18)];
-    vipSub.text = @"✓ Background watchdog auto-boosts these apps the moment they launch.";
+    UILabel *vipSub = [[UILabel alloc] initWithFrame:CGRectMake(16, 96, contentW - 32, 18)];
+    vipSub.text = @"✓ Background watchdog auto-boosts apps & gamepads for zero input lag.";
     vipSub.font = [UIFont systemFontOfSize:11 weight:UIFontWeightRegular];
     vipSub.textColor = [UIColor colorWithRed:0.3 green:0.85 blue:0.45 alpha:0.9];
     [vipCard addSubview:vipSub];
-    y += 127;
+    y += 142;
     
     // CARD 4: 24/7 Persistent Daemon Toggle
     UIView *daemonCard = [[UIView alloc] initWithFrame:CGRectMake(startX, y, contentW, 85)];
