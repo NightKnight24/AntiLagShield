@@ -1,17 +1,13 @@
 #!/var/jb/usr/bin/bash
 # ==============================================================================
-# 🛡️ Anti-Lag Shield Pro v3.5 Controller (iPadOS Rootless / Wi-Fi & Battery Edition)
-# Wi-Fi Zero Latency, Battery Saver & Telemetry Defense, Stremio VIP (Port 11470),
-# TSO Anti-Bufferbloat, Retina 1080p Buffers, RAM Purge & VIP Process Scheduling
+# 🛡️ Anti-Lag Shield Pro v3.6 Controller (Universal Wi-Fi & Battery Edition)
+# Universal Auto-Detect Gateway, Manual Override, Network Sentinel & Anti-Spoof,
+# Bandwidth Thief Suppression, Battery Saver & Telemetry Defense, Stremio VIP
 # ==============================================================================
 
 export PATH="/var/jb/usr/bin:/var/jb/bin:/var/jb/usr/sbin:/var/jb/sbin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
 
-VIRGIN_HUB_MAC="b0:1f:f4:01:5c:60"
-PI_MAC="d8:3a:dd:cc:42:1c"
-PI_IP="192.168.0.75"
-FALLBACK_ROUTER_IP="192.168.0.1"
-
+CONF_FILE="/var/mobile/Library/Preferences/com.jordan.antilagshield.conf"
 STATE_FILE="/var/mobile/Library/Caches/shield_state.txt"
 PID_FILE="/var/mobile/Library/Caches/shield_watchdog.pid"
 DAEMON_PLIST="/var/jb/Library/LaunchDaemons/com.jordan.antilagshield.plist"
@@ -22,8 +18,56 @@ APP_PID="$3"
 
 INTERFACE="en0"
 
-ROUTER_IP=$(/var/jb/usr/sbin/route -n get default 2>/dev/null | awk '/gateway:/ {print $2}')
-[ -z "$ROUTER_IP" ] && ROUTER_IP="$FALLBACK_ROUTER_IP"
+init_config() {
+    if [ ! -f "$CONF_FILE" ]; then
+        mkdir -p "$(dirname "$CONF_FILE")" 2>/dev/null
+        cat <<EOF > "$CONF_FILE"
+GATEWAY_IP=auto
+GATEWAY_MAC=auto
+BANDWIDTH_SENTINEL=enabled
+BATTERY_SAVER=enabled
+EOF
+        chmod 644 "$CONF_FILE" 2>/dev/null
+    fi
+}
+
+norm_mac() {
+    local IFS=:
+    local parts=($1)
+    local out=""
+    for p in "${parts[@]}"; do
+        [ ${#p} -eq 1 ] && p="0$p"
+        out="${out}${out:+:}$p"
+    done
+    echo "$out"
+}
+
+resolve_gateway() {
+    init_config
+    local cfg_ip=$(grep "^GATEWAY_IP=" "$CONF_FILE" 2>/dev/null | cut -d= -f2 | tr -d '[:space:]')
+    local cfg_mac=$(grep "^GATEWAY_MAC=" "$CONF_FILE" 2>/dev/null | cut -d= -f2 | tr -d '[:space:]')
+
+    # Detect Gateway IP
+    if [ -z "$cfg_ip" ] || [ "$cfg_ip" = "auto" ]; then
+        ROUTER_IP=$(/var/jb/usr/sbin/route -n get default 2>/dev/null | awk '/gateway:/ {print $2}')
+        [ -z "$ROUTER_IP" ] && ROUTER_IP="192.168.0.1"
+    else
+        ROUTER_IP="$cfg_ip"
+    fi
+
+    # Detect Gateway MAC
+    if [ -z "$cfg_mac" ] || [ "$cfg_mac" = "auto" ]; then
+        /var/jb/bin/ping -c 1 -W 300 "$ROUTER_IP" >/dev/null 2>&1
+        local raw_mac=$(/var/jb/usr/sbin/arp -n "$ROUTER_IP" 2>/dev/null | awk '/at/ {for(i=1;i<=NF;i++) if($i=="at") print $(i+1)}')
+        if [ -n "$raw_mac" ]; then
+            ROUTER_MAC=$(norm_mac "$raw_mac")
+        else
+            ROUTER_MAC=""
+        fi
+    else
+        ROUTER_MAC=$(norm_mac "$cfg_mac")
+    fi
+}
 
 # Apple Background Telemetry & Battery-Draining Daemons
 BATTERY_HOG_DAEMONS=(
@@ -39,20 +83,16 @@ BATTERY_HOG_DAEMONS=(
 )
 
 apply_battery_saver() {
-    # 1. Unload heavy telemetry, analytics, experimentation, and inference daemons
     for d in "${BATTERY_HOG_DAEMONS[@]}"; do
         local plist="/System/Library/LaunchDaemons/$d.plist"
         if [ -f "$plist" ]; then
             sudo /var/jb/usr/bin/launchctl unload "$plist" >/dev/null 2>&1
         fi
     done
-
-    # 2. Enable CPU Timer Coalescing (lets A10 SoC stay in deep low-power sleep states)
     sudo sysctl -w kern.timer.coalescing_enabled=1 >/dev/null 2>&1
 }
 
 revert_battery_saver() {
-    # Re-enable system background daemons
     for d in "${BATTERY_HOG_DAEMONS[@]}"; do
         local plist="/System/Library/LaunchDaemons/$d.plist"
         if [ -f "$plist" ]; then
@@ -61,10 +101,23 @@ revert_battery_saver() {
     done
 }
 
+throttle_bandwidth_thieves() {
+    local thieves=("nsurlsessiond" "appstored" "assetsd" "cloudd" "softwareupdated")
+    for t in "${thieves[@]}"; do
+        local pids=$(/bin/ps -A -o pid,comm 2>/dev/null | awk -v pat="$t" '$0 ~ pat && !/(awk|grep|shield)/ {print $1}')
+        for p in $pids; do
+            if [ -n "$p" ] && [ "$p" -gt 1 ]; then
+                sudo renice 10 -p "$p" >/dev/null 2>&1
+            fi
+        done
+    done
+}
+
 apply_optimizations() {
     local target_mode="$1"
+    resolve_gateway
 
-    # 1. Battery Saver & Telemetry Defense (Halts Apple background drain on A10 chip)
+    # 1. Battery Saver & Telemetry Defense
     apply_battery_saver
 
     # 2. Wi-Fi Stealth & Anti-Reconnaissance Blackholing
@@ -75,25 +128,28 @@ apply_optimizations() {
     sudo sysctl -w net.inet6.icmp6.rediraccept=0 >/dev/null 2>&1
     sudo sysctl -w net.inet.tcp.drop_synfin=1 >/dev/null 2>&1
 
-    # 3. Wi-Fi Hardware Static ARP Lock (Virgin Hub 5 Gateway + Pi Isolation)
-    sudo arp -d "$ROUTER_IP" ifscope "$INTERFACE" >/dev/null 2>&1
-    sudo arp -s "$ROUTER_IP" "$VIRGIN_HUB_MAC" ifscope "$INTERFACE" >/dev/null 2>&1
-    sudo arp -d "$PI_IP" ifscope "$INTERFACE" >/dev/null 2>&1
-    sudo arp -s "$PI_IP" "$PI_MAC" ifscope "$INTERFACE" >/dev/null 2>&1
+    # 3. Universal Zero-Trust Hardware Static ARP Lock
+    if [ -n "$ROUTER_IP" ] && [ -n "$ROUTER_MAC" ]; then
+        sudo arp -d "$ROUTER_IP" ifscope "$INTERFACE" >/dev/null 2>&1
+        sudo arp -s "$ROUTER_IP" "$ROUTER_MAC" ifscope "$INTERFACE" >/dev/null 2>&1
+    fi
 
-    # 4. Broadcom Wi-Fi WMM / DSCP VIP QoS Fast-Path
+    # 4. Throttle background bandwidth thieves (No Wi-Fi theft during games/streams)
+    throttle_bandwidth_thieves
+
+    # 5. Broadcom Wi-Fi WMM / DSCP VIP QoS Fast-Path
     sudo sysctl -w net.qos.policy.wifi_enabled=1 >/dev/null 2>&1
     sudo sysctl -w net.qos.policy.capable_enabled=1 >/dev/null 2>&1
     sudo sysctl -w net.qos.reset_dscp_to_wifi_ac_map=1 >/dev/null 2>&1
 
-    # 5. Disable AWDL / AirDrop scans during session to eliminate micro-stutters
+    # 6. Disable AWDL / AirDrop scans during session to eliminate micro-stutters
     sudo ifconfig awdl0 down >/dev/null 2>&1
     sudo ifconfig llw0 down >/dev/null 2>&1
 
-    # 6. Flush DNS resolver cache
+    # 7. Flush DNS resolver cache
     sudo killall -HUP mDNSResponder >/dev/null 2>&1
 
-    # 7. Throttle background indexing & heavy storage daemons (Zero flash storage/CPU churn)
+    # 8. Throttle background indexing & heavy storage churn
     for bg_daemon in corespotlightd knowledgeconstructiond deleted cloudphotod; do
         BG_PIDS=$(/bin/ps -A -o pid,comm 2>/dev/null | awk -v d="$bg_daemon" '$0 ~ d && !/awk/ {print $1}')
         for bg_p in $BG_PIDS; do
@@ -101,9 +157,9 @@ apply_optimizations() {
         done
     done
 
-    # 8. Kernel TCP / UDP Buffer & TSO Offload Tuning (Optimized for 2048x1536 Retina / 2GB RAM)
+    # 9. Kernel TCP / UDP Buffer & TSO Offload Tuning (Retina Display Optimized)
     if [ "$target_mode" = "gaming" ]; then
-        # Gaming Mode: Instant ACK (0ms), TSO Off (Anti-Bufferbloat), Tight 2-4MB Buffers
+        # Gaming: Instant ACK (0ms), TSO Off (Anti-Bufferbloat), Tight Buffers, somaxconn=512
         sudo sysctl -w net.inet.tcp.tso=0 >/dev/null 2>&1
         sudo sysctl -w net.inet.tcp.delayed_ack=0 >/dev/null 2>&1
         sudo sysctl -w net.inet.tcp.sendspace=2097152 >/dev/null 2>&1
@@ -114,7 +170,7 @@ apply_optimizations() {
         sudo sysctl -w net.inet.udp.maxdgram=65535 >/dev/null 2>&1
         sudo sysctl -w kern.ipc.somaxconn=512 >/dev/null 2>&1
     else
-        # Streaming & Stremio Web Server Mode: TSO Throughput, 6MB Retina Dynamic Buffer (somaxconn: 512)
+        # Streaming: TSO Burst, 6MB Retina Dynamic Buffer, somaxconn=512, Stremio VIP
         sudo sysctl -w net.inet.tcp.tso=1 >/dev/null 2>&1
         sudo sysctl -w net.inet.tcp.delayed_ack=2 >/dev/null 2>&1
         sudo sysctl -w net.inet.tcp.sendspace=2097152 >/dev/null 2>&1
@@ -126,10 +182,10 @@ apply_optimizations() {
         sudo sysctl -w kern.ipc.somaxconn=512 >/dev/null 2>&1
     fi
 
-    # 9. Reclaim Inactive Memory (RAM Purge)
+    # 10. Reclaim Inactive Memory (RAM Purge)
     sudo /var/jb/usr/bin/purge >/dev/null 2>&1
 
-    # 10. Hardware Media & Audio Decoder Boost
+    # 11. Hardware Media & Audio Decoder Boost
     MS_PID=$(/bin/ps -A -o pid,comm 2>/dev/null | awk '/mediaserverd/ && !/awk/ {print $1}')
     if [ -n "$MS_PID" ]; then
         sudo renice -10 -p "$MS_PID" >/dev/null 2>&1
@@ -137,7 +193,6 @@ apply_optimizations() {
 }
 
 revert_optimizations() {
-    # Restore stock TCP / UDP sysctls
     sudo sysctl -w net.inet.tcp.blackhole=0 >/dev/null 2>&1
     sudo sysctl -w net.inet.udp.blackhole=0 >/dev/null 2>&1
     sudo sysctl -w net.inet.tcp.tso=1 >/dev/null 2>&1
@@ -151,36 +206,30 @@ revert_optimizations() {
     sudo sysctl -w net.inet.ip.redirect=1 >/dev/null 2>&1
     sudo sysctl -w kern.ipc.somaxconn=128 >/dev/null 2>&1
 
-    # Reset QoS Wi-Fi policy to stock
     sudo sysctl -w net.qos.policy.wifi_enabled=0 >/dev/null 2>&1
     sudo sysctl -w net.qos.policy.capable_enabled=0 >/dev/null 2>&1
     sudo sysctl -w net.qos.reset_dscp_to_wifi_ac_map=0 >/dev/null 2>&1
 
-    # Restore AWDL (AirDrop)
     sudo ifconfig awdl0 up >/dev/null 2>&1
     sudo ifconfig llw0 up >/dev/null 2>&1
 
-    # Restore background indexing daemons to normal priority
-    for bg_daemon in corespotlightd knowledgeconstructiond deleted cloudphotod; do
+    for bg_daemon in corespotlightd knowledgeconstructiond deleted cloudphotod nsurlsessiond appstored assetsd cloudd; do
         BG_PIDS=$(/bin/ps -A -o pid,comm 2>/dev/null | awk -v d="$bg_daemon" '$0 ~ d && !/awk/ {print $1}')
         for bg_p in $BG_PIDS; do
             [ -n "$bg_p" ] && sudo renice 0 -p "$bg_p" >/dev/null 2>&1
         done
     done
 
-    # Restore mediaserverd priority
     MS_PID=$(/bin/ps -A -o pid,comm 2>/dev/null | awk '/mediaserverd/ && !/awk/ {print $1}')
     if [ -n "$MS_PID" ]; then
         sudo renice 0 -p "$MS_PID" >/dev/null 2>&1
     fi
 
-    # Re-enable system background daemons
     revert_battery_saver
 }
 
 case "$ACTION" in
     start)
-        # Kill any existing standalone watchdog
         if [ -f "$PID_FILE" ]; then
             OLD_WPID=$(cat "$PID_FILE" 2>/dev/null)
             [ -n "$OLD_WPID" ] && kill "$OLD_WPID" 2>/dev/null
@@ -195,8 +244,7 @@ case "$ACTION" in
         mkdir -p /var/mobile/Library/Caches
         echo "ACTIVE:$MODE:$APP_PID" > "$STATE_FILE"
 
-        # Spawn background watchdog bound to UI App PID
-        nohup /var/jb/usr/bin/bash /var/jb/usr/bin/shield_ctl _watchdog "$APP_PID" "$ROUTER_IP" "$INTERFACE" "$VIRGIN_HUB_MAC" "$PI_MAC" "$PI_IP" >/dev/null 2>&1 &
+        nohup /var/jb/usr/bin/bash /var/jb/usr/bin/shield_ctl _watchdog "$APP_PID" "$ROUTER_IP" "$INTERFACE" "$ROUTER_MAC" >/dev/null 2>&1 &
         echo $! > "$PID_FILE"
 
         echo "SHIELD_STARTED:$MODE"
@@ -208,38 +256,40 @@ case "$ACTION" in
         mkdir -p /var/mobile/Library/Caches
         echo "ACTIVE:$MODE:DAEMON" > "$STATE_FILE"
 
-        # Run continuous watchdog loop as foreground process of LaunchDaemon
-        exec /var/jb/usr/bin/shield_ctl _watchdog "DAEMON" "$ROUTER_IP" "$INTERFACE" "$VIRGIN_HUB_MAC" "$PI_MAC" "$PI_IP"
+        exec /var/jb/usr/bin/shield_ctl _watchdog "DAEMON" "$ROUTER_IP" "$INTERFACE" "$ROUTER_MAC"
         ;;
 
     _watchdog)
         TARGET_PID="$2"
         ROUTER="$3"
         IFACE="$4"
-        VIRGIN_MAC="$5"
-        PI_MAC="$6"
-        PI_IP_ADDR="$7"
+        GATEWAY_MAC_AUTH="$5"
 
-        # Comprehensive VIP Process Patterns: Streaming Engine, Stremio Web Server, Media & Gaming
         VIP_PATTERN="(Stremio|NodeMobile|stremio-runtime|stremio-service|ffmpeg|YouTube|PrimeVideo|Dominguez|Argo|Max-iOS|Netflix|Disney|Twitch|Infuse|VLC|Kodi|Plex|Roblox|PojavLauncher|Minecraft|Flycast|Delta|RetroArch|PPSSPP|Provenance|Moonlight|Sunshine|GeForceNOW|Chiaki|SteamLink|Shadow|Discord)"
 
         LOOP_COUNT=0
         while true; do
-            # If bound to a specific UI PID, exit if that app terminates
             if [ "$TARGET_PID" != "DAEMON" ] && [ -n "$TARGET_PID" ] && [ "$TARGET_PID" -gt 1 ]; then
                 if ! kill -0 "$TARGET_PID" 2>/dev/null; then
                     break
                 fi
             fi
 
-            # 1. ARP Table Integrity Check (Anti-Spoof Defense)
-            ARP_ENTRY=$(arp -n "$ROUTER" 2>/dev/null | tr "[:upper:]" "[:lower:]")
-            if [[ "$ARP_ENTRY" == *"$PI_MAC"* ]] || [[ "$ARP_ENTRY" != *"permanent"* ]] || [[ "$ARP_ENTRY" == *"no entry"* ]]; then
-                sudo arp -d "$ROUTER" ifscope "$IFACE" >/dev/null 2>&1
-                sudo arp -s "$ROUTER" "$VIRGIN_MAC" ifscope "$IFACE" >/dev/null 2>&1
+            # 1. Zero-Trust Anti-Spoof Sentinel: Re-lock gateway if poisoned or altered
+            if [ -n "$ROUTER" ] && [ -n "$GATEWAY_MAC_AUTH" ]; then
+                ARP_ENTRY=$(arp -n "$ROUTER" 2>/dev/null | tr "[:upper:]" "[:lower:]")
+                CURRENT_RAW_MAC=$(echo "$ARP_ENTRY" | awk '/at/ {for(i=1;i<=NF;i++) if($i=="at") print $(i+1)}')
+                CURRENT_NORM_MAC=$(norm_mac "$CURRENT_RAW_MAC")
+                if [[ "$CURRENT_NORM_MAC" != "$GATEWAY_MAC_AUTH" ]] || [[ "$ARP_ENTRY" != *"permanent"* ]] || [[ "$ARP_ENTRY" == *"no entry"* ]]; then
+                    sudo arp -d "$ROUTER" ifscope "$IFACE" >/dev/null 2>&1
+                    sudo arp -s "$ROUTER" "$GATEWAY_MAC_AUTH" ifscope "$IFACE" >/dev/null 2>&1
+                fi
             fi
 
-            # 2. Auto-Renice all streaming, gaming & Stremio web server VIP processes to -20
+            # 2. Throttle background bandwidth thieves (nsurlsessiond, appstored, etc.)
+            throttle_bandwidth_thieves
+
+            # 3. Auto-Renice all streaming, gaming & Stremio VIP processes to -20
             APP_PIDS=$(/bin/ps -A -o pid,command 2>/dev/null | awk -v pat="$VIP_PATTERN" '$0 ~ pat && !/(awk|grep|shield)/ {print $1}')
             for p in $APP_PIDS; do
                 if [ -n "$p" ] && [ "$p" -gt 1 ]; then
@@ -247,13 +297,13 @@ case "$ACTION" in
                 fi
             done
 
-            # 3. Keep mediaserverd prioritized
+            # 4. Keep mediaserverd prioritized
             MS_PID=$(/bin/ps -A -o pid,comm 2>/dev/null | awk '/mediaserverd/ && !/awk/ {print $1}')
             if [ -n "$MS_PID" ]; then
                 sudo renice -10 -p "$MS_PID" >/dev/null 2>&1
             fi
 
-            # Periodic memory refresh every ~2 minutes (40 loops * 3s)
+            # Periodic memory refresh every ~2 minutes
             LOOP_COUNT=$((LOOP_COUNT + 1))
             if [ $LOOP_COUNT -ge 40 ]; then
                 sudo /var/jb/usr/bin/purge >/dev/null 2>&1
@@ -263,14 +313,12 @@ case "$ACTION" in
             sleep 3
         done
 
-        # Auto-revert when target app exits (only in non-daemon mode)
         if [ "$TARGET_PID" != "DAEMON" ]; then
             /var/jb/usr/bin/shield_ctl stop
         fi
         ;;
 
     stop)
-        # Kill watchdog
         if [ -f "$PID_FILE" ]; then
             WPID=$(cat "$PID_FILE" 2>/dev/null)
             [ -n "$WPID" ] && kill "$WPID" 2>/dev/null
@@ -292,7 +340,6 @@ case "$ACTION" in
         ;;
 
     stremio_status)
-        # Check active established connections on Stremio Web Server port 11470
         STREAM_COUNT=$(/var/jb/usr/sbin/netstat -an 2>/dev/null | awk '/11470/ && /ESTABLISHED/ {count++} END {print count+0}')
         echo "STREMIO_STREAMS:$STREAM_COUNT"
         ;;
@@ -320,22 +367,60 @@ case "$ACTION" in
         esac
         ;;
 
+    config)
+        SUB="$2"
+        resolve_gateway
+        case "$SUB" in
+            set)
+                NEW_IP="$3"
+                NEW_MAC="$4"
+                if [ -n "$NEW_IP" ] && [ -n "$NEW_MAC" ]; then
+                    NORM_M=$(norm_mac "$NEW_MAC")
+                    cat <<EOF > "$CONF_FILE"
+GATEWAY_IP=$NEW_IP
+GATEWAY_MAC=$NORM_M
+BANDWIDTH_SENTINEL=enabled
+BATTERY_SAVER=enabled
+EOF
+                    echo "CONFIG_SAVED:IP=$NEW_IP:MAC=$NORM_M"
+                else
+                    echo "Usage: $0 config set <gateway_ip> <gateway_mac>"
+                fi
+                ;;
+            auto)
+                cat <<EOF > "$CONF_FILE"
+GATEWAY_IP=auto
+GATEWAY_MAC=auto
+BANDWIDTH_SENTINEL=enabled
+BATTERY_SAVER=enabled
+EOF
+                resolve_gateway
+                echo "CONFIG_AUTO_RESET:IP=$ROUTER_IP:MAC=$ROUTER_MAC"
+                ;;
+            get|show|*)
+                CFG_IP=$(grep "^GATEWAY_IP=" "$CONF_FILE" 2>/dev/null | cut -d= -f2 | tr -d '[:space:]')
+                CFG_MAC=$(grep "^GATEWAY_MAC=" "$CONF_FILE" 2>/dev/null | cut -d= -f2 | tr -d '[:space:]')
+                echo "MODE=${CFG_IP:-auto}"
+                echo "ROUTER_IP=$ROUTER_IP"
+                echo "ROUTER_MAC=$ROUTER_MAC"
+                echo "BANDWIDTH_SENTINEL=active"
+                ;;
+        esac
+        ;;
+
     run|hud|interactive)
-        # Interactive live HUD with real-time telemetry matching iPad Wi-Fi & Battery specs
         RUN_MODE="${2:-streaming}"
         apply_optimizations "$RUN_MODE"
         trap 'revert_optimizations; echo -e "\n\033[1;32m[✔] Defaults restored.\033[0m"; exit 0' SIGHUP SIGINT SIGTERM EXIT
         export SHIELD_MODE_ENV="$RUN_MODE"
         export ROUTER_IP_ENV="$ROUTER_IP"
-        export VIRGIN_MAC_ENV="$VIRGIN_HUB_MAC"
-        export PI_MAC_ENV="$PI_MAC"
+        export ROUTER_MAC_ENV="$ROUTER_MAC"
         /var/jb/usr/bin/python3 - <<'PY_CLI_END'
 import os, sys, time, subprocess
 
 mode = os.environ.get("SHIELD_MODE_ENV", "streaming")
 router_ip = os.environ.get("ROUTER_IP_ENV", "192.168.0.1")
-virgin_mac = os.environ.get("VIRGIN_MAC_ENV", "b0:1f:f4:01:5c:60")
-pi_mac = os.environ.get("PI_MAC_ENV", "d8:3a:dd:cc:42:1c")
+router_mac = os.environ.get("ROUTER_MAC_ENV", "auto")
 
 C_RESET = '\033[0m'
 C_GREEN = '\033[0;32m'
@@ -409,7 +494,7 @@ def find_active_apps():
         out = subprocess.check_output(['/bin/ps', '-A', '-o', 'pid,command'], stderr=subprocess.DEVNULL).decode()
         for line in out.splitlines():
             for t in targets:
-                if t.lower() in line.lower() and not any(x in line for x in ['grep', 'awk', 'shield']):
+                if t.lower() in line.lower() and not any(x in line.lower() for x in ['grep', 'awk', 'shield']):
                     if t not in active:
                         active.append(t)
                         pid = line.split()[0]
@@ -418,14 +503,35 @@ def find_active_apps():
         pass
     return active
 
+def check_and_relock_arp(router_ip, auth_mac):
+    if not auth_mac or auth_mac == "auto": return True
+    try:
+        out = subprocess.check_output(['/var/jb/usr/sbin/arp', '-n', router_ip], stderr=subprocess.DEVNULL).decode()
+        cur_mac = ""
+        parts = out.split()
+        if 'at' in parts:
+            idx = parts.index('at')
+            if idx + 1 < len(parts):
+                raw = parts[idx + 1]
+                cur_mac = ":".join(f"{int(x, 16):02x}" for x in raw.split(":"))
+        if cur_mac != auth_mac or "permanent" not in out:
+            subprocess.call(['sudo', 'arp', '-d', router_ip, 'ifscope', 'en0'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.call(['sudo', 'arp', '-s', router_ip, auth_mac, 'ifscope', 'en0'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return False
+    except:
+        pass
+    return True
+
 prev_ib, prev_ob = get_bytes()
 prev_t = time.time()
 loop = 0
 r_ms, i_ms = None, None
 bat_str = get_battery()
+spoof_blocks = 0
 
-print(f"\n{C_CYAN}🛡️   Anti-Lag Shield Pro v3.5 (Wi-Fi & Battery Saver Edition)   🛡️{C_RESET}")
-print(f"{C_GREEN}[✔] Apple Telemetry & Analytics Bloat: DISABLED (Deep Sleep Enabled){C_RESET}\n")
+print(f"\n{C_CYAN}🛡️   Anti-Lag Shield Pro v3.6 (Universal Network Sentinel)   🛡️{C_RESET}")
+print(f"{C_GREEN}[✔] Auto-Detected Gateway: {router_ip} ({router_mac}) [Permanently Locked]{C_RESET}")
+print(f"{C_GREEN}[✔] Bandwidth Thief Shield & Battery Saver: ACTIVE{C_RESET}\n")
 
 try:
     while True:
@@ -442,6 +548,10 @@ try:
             r_ms = ping(router_ip, 350)
             i_ms = ping("1.1.1.1", 400)
             
+        if loop % 3 == 0:
+            if not check_and_relock_arp(router_ip, router_mac):
+                spoof_blocks += 1
+
         if loop % 15 == 0:
             bat_str = get_battery()
 
@@ -458,9 +568,11 @@ try:
             stremio_tag = f" [Serving Stream]" if stremio_streams > 0 else ""
             app_str = f"{C_BRIGHT_GREEN}🚀 {' + '.join(active[:2])}{stremio_tag} (VIP -20){C_RESET}"
         else:
-            app_str = f"{C_GRAY}Shield Active{C_RESET}"
+            app_str = f"{C_GRAY}Sentinel Active{C_RESET}"
 
-        print(f"[{ts}] {mode_tag} | 📶 Wi-Fi (en0) | Router: {r_str} | Ping: {i_str} | 🔋 {bat_str} | {down} | {up} | {app_str} | {C_GREEN}🛡️ Hub Locked{C_RESET}")
+        sentinel_tag = f"{C_YELLOW}🛡️ Spoof Blocked ({spoof_blocks}x){C_RESET}" if spoof_blocks > 0 else f"{C_GREEN}🛡️ Gateway Guarded{C_RESET}"
+
+        print(f"[{ts}] {mode_tag} | 📶 Wi-Fi (en0) | Router: {r_str} | Ping: {i_str} | 🔋 {bat_str} | {down} | {up} | {app_str} | {sentinel_tag}")
         sys.stdout.flush()
 except KeyboardInterrupt:
     pass
@@ -545,7 +657,7 @@ EOF
         ;;
 
     *)
-        echo "Usage: $0 {start [mode] [pid]|start_daemon [mode]|stop|status|purge|stremio_status|battery [enable|disable|status]|run [mode]|daemon [enable|disable|status]}"
+        echo "Usage: $0 {start [mode] [pid]|start_daemon [mode]|stop|status|purge|stremio_status|battery [enable|disable|status]|config [show|set <ip> <mac>|auto]|run [mode]|daemon [enable|disable|status]}"
         exit 1
         ;;
 esac

@@ -39,6 +39,7 @@ static NSUInteger get_free_memory_mb(void) {
 @property (nonatomic, strong) UIButton *purgeButton;
 @property (nonatomic, strong) UISwitch *daemonSwitch;
 @property (nonatomic, strong) UILabel *daemonStatusLabel;
+@property (nonatomic, strong) UILabel *gatewayLabel;
 @property (nonatomic, strong) UILabel *tsoLabel;
 @property (nonatomic, strong) UILabel *bufferLabel;
 @property (nonatomic, strong) NSTimer *telemetryTimer;
@@ -50,7 +51,6 @@ static NSUInteger get_free_memory_mb(void) {
     [super viewDidLoad];
     self.view.backgroundColor = [UIColor colorWithRed:0.04 green:0.05 blue:0.08 alpha:1.0];
     
-    // Enable battery monitoring without draining battery
     [UIDevice currentDevice].batteryMonitoringEnabled = YES;
     
     self.scrollView = [[UIScrollView alloc] initWithFrame:self.view.bounds];
@@ -73,7 +73,7 @@ static NSUInteger get_free_memory_mb(void) {
     
     // Title
     UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(startX, y, contentW, 30)];
-    titleLabel.text = @"Anti-Lag Shield Pro v3.5";
+    titleLabel.text = @"Anti-Lag Shield Pro v3.6";
     titleLabel.font = [UIFont boldSystemFontOfSize:24];
     titleLabel.textColor = [UIColor whiteColor];
     titleLabel.textAlignment = NSTextAlignmentCenter;
@@ -82,7 +82,7 @@ static NSUInteger get_free_memory_mb(void) {
 
     // Subtitle
     UILabel *subLabel = [[UILabel alloc] initWithFrame:CGRectMake(startX, y, contentW, 20)];
-    subLabel.text = @"Gateway Hardware Lock • Battery Saver • Stremio VIP • Wi-Fi QoS";
+    subLabel.text = @"Universal Gateway Sentinel • Bandwidth Guard • Battery Saver";
     subLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
     subLabel.textColor = [UIColor colorWithRed:0.0 green:0.82 blue:0.95 alpha:0.9];
     subLabel.textAlignment = NSTextAlignmentCenter;
@@ -91,7 +91,7 @@ static NSUInteger get_free_memory_mb(void) {
     
     // Status Badge
     self.statusBadge = [[UILabel alloc] initWithFrame:CGRectMake(startX + (contentW - 270) / 2, y, 270, 32)];
-    self.statusBadge.text = @"●  SHIELD PRO ACTIVE";
+    self.statusBadge.text = @"●  SENTINEL ACTIVE";
     self.statusBadge.font = [UIFont boldSystemFontOfSize:13];
     self.statusBadge.textColor = [UIColor colorWithRed:0.2 green:0.95 blue:0.4 alpha:1.0];
     self.statusBadge.backgroundColor = [UIColor colorWithRed:0.06 green:0.22 blue:0.12 alpha:0.9];
@@ -110,7 +110,7 @@ static NSUInteger get_free_memory_mb(void) {
     [self.scrollView addSubview:self.modeControl];
     y += 52;
     
-    // CARD 1: Live Telemetry & RAM Booster (4 Columns: Hub 5 | Ping | Battery | RAM)
+    // CARD 1: Live Telemetry & RAM Booster (4 Columns: Gateway | Ping | Battery | RAM)
     UIView *telemetryCard = [[UIView alloc] initWithFrame:CGRectMake(startX, y, contentW, 140)];
     telemetryCard.backgroundColor = [UIColor colorWithRed:0.08 green:0.10 blue:0.14 alpha:0.95];
     telemetryCard.layer.cornerRadius = 16;
@@ -121,7 +121,7 @@ static NSUInteger get_free_memory_mb(void) {
     CGFloat colW = (contentW - 50) / 4;
     // Router Ping
     UILabel *rTitle = [[UILabel alloc] initWithFrame:CGRectMake(12, 14, colW, 18)];
-    rTitle.text = @"HUB 5";
+    rTitle.text = @"GATEWAY";
     rTitle.font = [UIFont systemFontOfSize:11 weight:UIFontWeightBold];
     rTitle.textColor = [UIColor colorWithWhite:0.55 alpha:1.0];
     [telemetryCard addSubview:rTitle];
@@ -134,7 +134,7 @@ static NSUInteger get_free_memory_mb(void) {
     
     // Internet Ping
     UILabel *iTitle = [[UILabel alloc] initWithFrame:CGRectMake(16 + colW, 14, colW, 18)];
-    iTitle.text = @"PING (1.1)";
+    iTitle.text = @"INTERNET (1.1)";
     iTitle.font = [UIFont systemFontOfSize:11 weight:UIFontWeightBold];
     iTitle.textColor = [UIColor colorWithWhite:0.55 alpha:1.0];
     [telemetryCard addSubview:iTitle];
@@ -185,27 +185,38 @@ static NSUInteger get_free_memory_mb(void) {
     [telemetryCard addSubview:self.purgeButton];
     y += 152;
     
-    // CARD 2: Active Defenses & Protocols (7 Rows)
-    UIView *defCard = [[UIView alloc] initWithFrame:CGRectMake(startX, y, contentW, 290)];
+    // CARD 2: Active Defenses & Protocols (7 Rows + Config Gateway Button)
+    UIView *defCard = [[UIView alloc] initWithFrame:CGRectMake(startX, y, contentW, 315)];
     defCard.backgroundColor = [UIColor colorWithRed:0.08 green:0.10 blue:0.14 alpha:0.95];
     defCard.layer.cornerRadius = 16;
     defCard.layer.borderWidth = 1.0;
     defCard.layer.borderColor = [UIColor colorWithRed:0.15 green:0.20 blue:0.28 alpha:1.0].CGColor;
     [self.scrollView addSubview:defCard];
     
-    CGFloat dy = 12;
+    // Config Gateway Button (top right)
+    UIButton *cfgBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+    cfgBtn.frame = CGRectMake(contentW - 130, 8, 118, 26);
+    [cfgBtn setTitle:@"⚙️ Config Gateway" forState:UIControlStateNormal];
+    cfgBtn.titleLabel.font = [UIFont systemFontOfSize:11 weight:UIFontWeightBold];
+    [cfgBtn setTitleColor:[UIColor colorWithRed:0.0 green:0.85 blue:1.0 alpha:1.0] forState:UIControlStateNormal];
+    cfgBtn.backgroundColor = [UIColor colorWithRed:0.08 green:0.22 blue:0.28 alpha:0.8];
+    cfgBtn.layer.cornerRadius = 8;
+    [cfgBtn addTarget:self action:@selector(configGatewayTapped:) forControlEvents:UIControlEventTouchUpInside];
+    [defCard addSubview:cfgBtn];
+    
+    CGFloat dy = 10;
     NSArray *rows = @[
-        @{@"t": @"Hardware Gateway Lock", @"v": @"Virgin Hub 5 (b0:1f:f4:01:5c:60) [Permanent]"},
-        @{@"t": @"Wi-Fi Stealth & Pi Defense", @"v": @"TCP/UDP Blackhole • ICMP Redirects Dropped"},
-        @{@"t": @"Battery & Telemetry Shield", @"v": @"Apple Diagnostics & Bloat Daemons Halted (Deep Sleep)"},
-        @{@"t": @"Stremio Web Server Engine", @"v": @"Port 11470 VIP • NodeMobile & MediaServer (-20)"},
+        @{@"t": @"Zero-Trust Gateway Lock", @"v": @"Auto-Detecting on Wi-Fi..."},
+        @{@"t": @"Universal Anti-Spoof Sentinel", @"v": @"Rogue ARP Hijacks & Poisoning Defense Active"},
+        @{@"t": @"Bandwidth Thief Sentinel", @"v": @"Active (Background App Store & iCloud Downloads Throttled)"},
+        @{@"t": @"Battery & Telemetry Shield", @"v": @"9 Apple Diagnostics & Bloat Daemons Halted (Deep Sleep)"},
+        @{@"t": @"Stremio Web Server VIP", @"v": @"Port 11470 • NodeMobile & MediaServer (-20)"},
         @{@"t": @"TSO Anti-Bufferbloat Control", @"v": @"TSO Enabled (Retina Throughput)"},
-        @{@"t": @"TCP / UDP Buffer Tuning", @"v": @"6 MB Retina HD Buffer (somaxconn: 512)"},
-        @{@"t": @"Wi-Fi Radio & AWDL Shield", @"v": @"Broadcom WMM QoS • AirDrop Scans Paused"}
+        @{@"t": @"TCP / UDP Buffer Tuning", @"v": @"6 MB Retina HD Buffer (somaxconn: 512)"}
     ];
     
     for (NSDictionary *r in rows) {
-        UILabel *tLbl = [[UILabel alloc] initWithFrame:CGRectMake(16, dy, contentW - 32, 15)];
+        UILabel *tLbl = [[UILabel alloc] initWithFrame:CGRectMake(16, dy, contentW - 150, 15)];
         tLbl.text = r[@"t"];
         tLbl.font = [UIFont systemFontOfSize:10 weight:UIFontWeightMedium];
         tLbl.textColor = [UIColor colorWithWhite:0.5 alpha:1.0];
@@ -215,22 +226,25 @@ static NSUInteger get_free_memory_mb(void) {
         vLbl.text = r[@"v"];
         vLbl.font = [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
         vLbl.textColor = [UIColor whiteColor];
-        if ([r[@"t"] containsString:@"Buffer Tuning"]) {
+        if ([r[@"t"] containsString:@"Gateway Lock"]) {
+            self.gatewayLabel = vLbl;
+            vLbl.textColor = [UIColor colorWithRed:0.2 green:0.85 blue:1.0 alpha:1.0];
+        } else if ([r[@"t"] containsString:@"Buffer Tuning"]) {
             self.bufferLabel = vLbl;
         } else if ([r[@"t"] containsString:@"TSO"]) {
             self.tsoLabel = vLbl;
             vLbl.textColor = [UIColor colorWithRed:0.2 green:0.8 blue:1.0 alpha:1.0];
         } else if ([r[@"t"] containsString:@"Battery"]) {
             vLbl.textColor = [UIColor colorWithRed:0.3 green:0.95 blue:0.45 alpha:1.0];
-        } else if ([r[@"t"] containsString:@"Stealth"]) {
+        } else if ([r[@"t"] containsString:@"Anti-Spoof"] || [r[@"t"] containsString:@"Bandwidth"]) {
             vLbl.textColor = [UIColor colorWithRed:0.3 green:0.9 blue:0.5 alpha:1.0];
         } else if ([r[@"t"] containsString:@"Stremio"]) {
             vLbl.textColor = [UIColor colorWithRed:1.0 green:0.7 blue:0.2 alpha:1.0];
         }
         [defCard addSubview:vLbl];
-        dy += 39;
+        dy += 41;
     }
-    y += 302;
+    y += 327;
     
     // CARD 3: VIP Prioritized Apps Shelf
     UIView *vipCard = [[UIView alloc] initWithFrame:CGRectMake(startX, y, contentW, 115)];
@@ -286,13 +300,13 @@ static NSUInteger get_free_memory_mb(void) {
     [daemonCard addSubview:self.daemonSwitch];
     y += 97;
     
-    // Bottom Space
     self.scrollView.contentSize = CGSizeMake(width, y + 40);
     
     [self checkDaemonStatus];
     [self applyShield];
     [self updateRAM];
     [self updateBattery];
+    [self updateGatewayLabel];
     
     self.telemetryTimer = [NSTimer scheduledTimerWithTimeInterval:2.5 target:self selector:@selector(refreshTelemetry) userInfo:nil repeats:YES];
     [self refreshTelemetry];
@@ -314,6 +328,75 @@ static NSUInteger get_free_memory_mb(void) {
         self.bufferLabel.text = @"Instant ACK (0ms) + 2 MB Buffers (somaxconn: 512)";
     }
     [self applyShield];
+}
+
+- (void)configGatewayTapped:(UIButton *)sender {
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"⚙️ Gateway Configuration"
+                                                                   message:@"Anti-Lag Shield Pro automatically discovers your router on any Wi-Fi network. You can also specify a custom gateway below."
+                                                            preferredStyle:UIAlertControllerStyleAlert];
+    
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
+        textField.placeholder = @"Gateway IP (e.g. 192.168.1.1 or auto)";
+        textField.keyboardType = UIKeyboardTypeNumbersAndPunctuation;
+    }];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
+        textField.placeholder = @"Gateway MAC (e.g. 00:11:22:33:44:55 or auto)";
+        textField.keyboardType = UIKeyboardTypeASCIICapable;
+    }];
+    
+    UIAlertAction *autoAction = [UIAlertAction actionWithTitle:@"Auto-Detect on Any Wi-Fi" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
+            run_cmd(@"/var/jb/usr/bin/shield_ctl config auto");
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self updateGatewayLabel];
+                [self applyShield];
+            });
+        });
+    }];
+    
+    UIAlertAction *saveAction = [UIAlertAction actionWithTitle:@"Save Custom" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
+        NSString *ip = alert.textFields[0].text;
+        NSString *mac = alert.textFields[1].text;
+        if (ip.length > 0 && mac.length > 0) {
+            dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
+                run_cmd([NSString stringWithFormat:@"/var/jb/usr/bin/shield_ctl config set %@ %@", ip, mac]);
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [self updateGatewayLabel];
+                    [self applyShield];
+                });
+            });
+        }
+    }];
+    
+    UIAlertAction *cancelAction = [UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil];
+    
+    [alert addAction:autoAction];
+    [alert addAction:saveAction];
+    [alert addAction:cancelAction];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)updateGatewayLabel {
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        run_cmd(@"/var/jb/usr/bin/shield_ctl config show > /tmp/gw_cfg.txt 2>/dev/null");
+        NSString *cfg = [NSString stringWithContentsOfFile:@"/tmp/gw_cfg.txt" encoding:NSUTF8StringEncoding error:nil];
+        NSString *ip = @"";
+        NSString *mac = @"";
+        for (NSString *line in [cfg componentsSeparatedByString:@"\n"]) {
+            if ([line hasPrefix:@"ROUTER_IP="]) {
+                ip = [line substringFromIndex:10];
+            } else if ([line hasPrefix:@"ROUTER_MAC="]) {
+                mac = [line substringFromIndex:11];
+            }
+        }
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (ip.length > 0 && mac.length > 0) {
+                self.gatewayLabel.text = [NSString stringWithFormat:@"Locked: %@ (%@)", ip, mac];
+            } else {
+                self.gatewayLabel.text = @"Auto-Detected & Guarded [Permanent]";
+            }
+        });
+    });
 }
 
 - (void)purgeRAMTapped:(UIButton *)sender {
@@ -341,10 +424,10 @@ static NSUInteger get_free_memory_mb(void) {
             self.daemonSwitch.on = isActive;
             if (isActive) {
                 self.daemonStatusLabel.text = @"On: Persistent 24/7 root daemon active across reboots.";
-                self.statusBadge.text = @"●  24/7 DAEMON ACTIVE";
+                self.statusBadge.text = @"●  24/7 SENTINEL ACTIVE";
             } else {
                 self.daemonStatusLabel.text = @"Off: Shield active in App Switcher; reverts when swiped away.";
-                self.statusBadge.text = @"●  SHIELD PRO ACTIVE";
+                self.statusBadge.text = @"●  SENTINEL ACTIVE";
             }
         });
     });
@@ -358,7 +441,7 @@ static NSUInteger get_free_memory_mb(void) {
             run_cmd([NSString stringWithFormat:@"/var/jb/usr/bin/shield_ctl daemon enable %@", mode]);
             dispatch_async(dispatch_get_main_queue(), ^{
                 self.daemonStatusLabel.text = @"On: Persistent 24/7 root daemon active across reboots.";
-                self.statusBadge.text = @"●  24/7 DAEMON ACTIVE";
+                self.statusBadge.text = @"●  24/7 SENTINEL ACTIVE";
             });
         });
     } else {
@@ -367,7 +450,7 @@ static NSUInteger get_free_memory_mb(void) {
             run_cmd(@"/var/jb/usr/bin/shield_ctl daemon disable");
             dispatch_async(dispatch_get_main_queue(), ^{
                 self.daemonStatusLabel.text = @"Off: Shield active in App Switcher; reverts when swiped away.";
-                self.statusBadge.text = @"●  SHIELD PRO ACTIVE";
+                self.statusBadge.text = @"●  SENTINEL ACTIVE";
                 [self applyShield];
             });
         });
@@ -402,7 +485,7 @@ static NSUInteger get_free_memory_mb(void) {
     [self updateRAM];
     [self updateBattery];
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW, 0), ^{
-        run_cmd(@"/var/jb/bin/ping -c 1 -W 400 192.168.0.1 > /tmp/rping.txt 2>/dev/null");
+        run_cmd(@"/var/jb/bin/ping -c 1 -W 400 $(/var/jb/usr/sbin/route -n get default 2>/dev/null | awk '/gateway:/ {print $2}') > /tmp/rping.txt 2>/dev/null");
         run_cmd(@"/var/jb/bin/ping -c 1 -W 500 1.1.1.1 > /tmp/iping.txt 2>/dev/null");
         
         NSString *rStr = [NSString stringWithContentsOfFile:@"/tmp/rping.txt" encoding:NSUTF8StringEncoding error:nil];

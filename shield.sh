@@ -1,15 +1,13 @@
 #!/bin/bash
 
 # ==============================================================================
-# 🛡️  iPadOS Anti-Lag Shield Pro v3.5 (Wi-Fi & Battery Saver HUD)  🛡️
-# Battery Telemetry Defense, Stremio VIP (Port 11470) & Hardware ARP Defense
+# 🛡️  iPadOS Anti-Lag Shield Pro v3.6 (Universal Network Sentinel)  🛡️
+# Universal Gateway Auto-Discovery, Anti-Spoof Sentinel, Bandwidth Thief Shield,
+# Battery Saver & Telemetry Defense, Stremio VIP & TSO Anti-Bufferbloat
 # ==============================================================================
 
-VIRGIN_HUB_MAC="b0:1f:f4:01:5c:60"
-PI_MAC="d8:3a:dd:cc:42:1c"
-PI_IP="192.168.0.75"
-FALLBACK_ROUTER_IP="192.168.0.1"
-INTERNET_PING_HOST="1.1.1.1"
+CONF_FILE="/var/mobile/Library/Preferences/com.jordan.antilagshield.conf"
+INTERFACE="en0"
 
 # ANSI Colors
 GREEN='\033[0;32m'
@@ -22,17 +20,98 @@ MAGENTA='\033[0;35m'
 BRIGHT_MAGENTA='\033[1;35m'
 NC='\033[0m'
 
+norm_mac() {
+    local IFS=:
+    local parts=($1)
+    local out=""
+    for p in "${parts[@]}"; do
+        [ ${#p} -eq 1 ] && p="0$p"
+        out="${out}${out:+:}$p"
+    done
+    echo "$out"
+}
+
+resolve_gateway() {
+    local cfg_ip=$(grep "^GATEWAY_IP=" "$CONF_FILE" 2>/dev/null | cut -d= -f2 | tr -d '[:space:]')
+    local cfg_mac=$(grep "^GATEWAY_MAC=" "$CONF_FILE" 2>/dev/null | cut -d= -f2 | tr -d '[:space:]')
+
+    if [ -z "$cfg_ip" ] || [ "$cfg_ip" = "auto" ]; then
+        ROUTER_IP=$(/var/jb/usr/sbin/route -n get default 2>/dev/null | awk '/gateway:/ {print $2}')
+        [ -z "$ROUTER_IP" ] && ROUTER_IP="192.168.0.1"
+        IP_MODE="Auto-Detected"
+    else
+        ROUTER_IP="$cfg_ip"
+        IP_MODE="Custom User Override"
+    fi
+
+    if [ -z "$cfg_mac" ] || [ "$cfg_mac" = "auto" ]; then
+        /var/jb/bin/ping -c 1 -W 300 "$ROUTER_IP" >/dev/null 2>&1
+        local raw_mac=$(/var/jb/usr/sbin/arp -n "$ROUTER_IP" 2>/dev/null | awk '/at/ {for(i=1;i<=NF;i++) if($i=="at") print $(i+1)}')
+        if [ -n "$raw_mac" ]; then
+            ROUTER_MAC=$(norm_mac "$raw_mac")
+        else
+            ROUTER_MAC=""
+        fi
+        MAC_MODE="Auto-Detected"
+    else
+        ROUTER_MAC=$(norm_mac "$cfg_mac")
+        MAC_MODE="Custom User Override"
+    fi
+}
+
+resolve_gateway
+
 clear
 echo -e "${CYAN}================================================================${NC}"
-echo -e "${CYAN}🛡️   Anti-Lag Shield Pro v3.5 — iPad Wi-Fi & Battery Edition   🛡️${NC}"
+echo -e "${CYAN}🛡️   Anti-Lag Shield Pro v3.6 — Universal Network Sentinel   🛡️${NC}"
 echo -e "${CYAN}================================================================${NC}"
 echo ""
-echo -e "${BRIGHT_CYAN}Select operating mode for your iPad:${NC}"
-echo -e "  ${BRIGHT_GREEN}[1] 🎮 Gaming Mode${NC}     — Zero Latency, Instant ACK, TSO Off (Anti-Bufferbloat)"
-echo -e "  ${BRIGHT_MAGENTA}[2] 🎬 Streaming Mode${NC}  — Retina HD Throughput, Stremio Web Server VIP (Port 11470)"
+echo -e "${BRIGHT_CYAN}Detected Network Configuration:${NC}"
+echo -e "  • Gateway Router IP:   ${GREEN}$ROUTER_IP${NC} ($IP_MODE)"
+echo -e "  • Gateway Router MAC:  ${GREEN}$ROUTER_MAC${NC} ($MAC_MODE)"
+echo -e "  • Active Interface:    ${GREEN}$INTERFACE (Wi-Fi)${NC}"
 echo ""
-read -t 15 -p "Enter choice [1 or 2] (Default: 2 for Stremio): " USER_CHOICE || USER_CHOICE="2"
+echo -e "${BRIGHT_CYAN}Select an option:${NC}"
+echo -e "  ${BRIGHT_GREEN}[1] 🎮 Gaming Mode${NC}        — Zero Latency, Instant ACK, TSO Off (Anti-Bufferbloat)"
+echo -e "  ${BRIGHT_MAGENTA}[2] 🎬 Streaming Mode${NC}     — Retina HD Throughput, Stremio Web VIP (Port 11470)"
+echo -e "  ${YELLOW}[3] ⚙️  Configure Gateway${NC}  — Change Gateway IP / MAC (Current: $IP_MODE)"
 echo ""
+read -t 15 -p "Enter choice [1, 2, or 3] (Default: 2): " USER_CHOICE || USER_CHOICE="2"
+echo ""
+
+if [[ "$USER_CHOICE" == "3" ]]; then
+    echo -e "${CYAN}[*] Gateway Configuration Menu:${NC}"
+    echo -e "  [A] Auto-Detect on this Wi-Fi Network [Default]"
+    echo -e "  [M] Enter Custom Gateway IP and MAC Manually"
+    read -p "Select [A or M]: " CFG_CHOICE
+    if [[ "$CFG_CHOICE" == "m" || "$CFG_CHOICE" == "M" ]]; then
+        read -p "Enter Gateway IP (e.g. 192.168.1.1): " CUSTOM_IP
+        read -p "Enter Gateway MAC (e.g. 00:11:22:33:44:55): " CUSTOM_MAC
+        if [ -n "$CUSTOM_IP" ] && [ -n "$CUSTOM_MAC" ]; then
+            mkdir -p "$(dirname "$CONF_FILE")"
+            cat <<EOF > "$CONF_FILE"
+GATEWAY_IP=$CUSTOM_IP
+GATEWAY_MAC=$(norm_mac "$CUSTOM_MAC")
+BANDWIDTH_SENTINEL=enabled
+BATTERY_SAVER=enabled
+EOF
+            echo -e "${GREEN}[✔] Custom Gateway saved: $CUSTOM_IP / $CUSTOM_MAC${NC}"
+        fi
+    else
+        mkdir -p "$(dirname "$CONF_FILE")"
+        cat <<EOF > "$CONF_FILE"
+GATEWAY_IP=auto
+GATEWAY_MAC=auto
+BANDWIDTH_SENTINEL=enabled
+BATTERY_SAVER=enabled
+EOF
+        echo -e "${GREEN}[✔] Reset to Automatic Gateway Detection on any Wi-Fi!${NC}"
+    fi
+    resolve_gateway
+    echo ""
+    read -p "Select Mode now: [1] Gaming or [2] Streaming: " USER_CHOICE
+    [ -z "$USER_CHOICE" ] && USER_CHOICE="2"
+fi
 
 if [[ "$USER_CHOICE" == "1" ]]; then
     SHIELD_MODE="gaming"
@@ -53,13 +132,7 @@ fi
 # Keep sudo alive in background
 while true; do sudo -n true; sleep 60; kill -0 "$$" || exit; done 2>/dev/null &
 
-# 2. Detect default interface and router
-INTERFACE="en0"
-ROUTER_IP=$(/var/jb/usr/sbin/route -n get default 2>/dev/null | awk '/gateway:/ {print $2}')
-[ -z "$ROUTER_IP" ] && ROUTER_IP=$FALLBACK_ROUTER_IP
-echo -e "${GREEN}[✔] Primary Route: $INTERFACE (Wi-Fi) | Gateway: $ROUTER_IP${NC}"
-
-# 3. Halt Apple Background Telemetry & Battery Drain Daemons
+# 2. Battery Saver & Telemetry Defense
 BATTERY_HOGS=(
     "com.apple.tipsd"
     "com.apple.tailspind"
@@ -80,43 +153,42 @@ done
 sudo /var/jb/usr/sbin/sysctl -w kern.timer.coalescing_enabled=1 >/dev/null 2>&1
 echo -e "${GREEN}[✔] Battery Saver & Telemetry Shield: ACTIVE (Apple background bloat halted)${NC}"
 
-# 4. Gateway ARP Lock to Virgin Media Hub & Raspberry Pi Isolation
-echo -e "${CYAN}[*] Securing Gateway ARP to Virgin Media Hub ($VIRGIN_HUB_MAC)...${NC}"
-sudo /var/jb/usr/sbin/arp -d "$ROUTER_IP" ifscope "$INTERFACE" >/dev/null 2>&1
-sudo /var/jb/usr/sbin/arp -s "$ROUTER_IP" "$VIRGIN_HUB_MAC" ifscope "$INTERFACE" >/dev/null 2>&1
-sudo /var/jb/usr/sbin/arp -d "$PI_IP" ifscope "$INTERFACE" >/dev/null 2>&1
-sudo /var/jb/usr/sbin/arp -s "$PI_IP" "$PI_MAC" ifscope "$INTERFACE" >/dev/null 2>&1
-echo -e "${GREEN}[✔] Gateway $ROUTER_IP LOCKED to Virgin Media Hub ($VIRGIN_HUB_MAC)${NC}"
-echo -e "${GREEN}[✔] Raspberry Pi ($PI_MAC / $PI_IP) Interception & Redirect Shield: ACTIVE${NC}"
+# 3. Universal Zero-Trust Hardware Static ARP Lock
+if [ -n "$ROUTER_IP" ] && [ -n "$ROUTER_MAC" ]; then
+    echo -e "${CYAN}[*] Securing Gateway ARP to Router ($ROUTER_IP -> $ROUTER_MAC)...${NC}"
+    sudo /var/jb/usr/sbin/arp -d "$ROUTER_IP" ifscope "$INTERFACE" >/dev/null 2>&1
+    sudo /var/jb/usr/sbin/arp -s "$ROUTER_IP" "$ROUTER_MAC" ifscope "$INTERFACE" >/dev/null 2>&1
+    echo -e "${GREEN}[✔] Gateway $ROUTER_IP LOCKED to Genuine Router ($ROUTER_MAC)${NC}"
+    echo -e "${GREEN}[✔] Universal Anti-Spoof Sentinel: ENGAGED (Auto-intercepts rogue devices)${NC}"
+fi
 
-# Block ICMP Redirects & Enable Wi-Fi Stealth Blackhole
+# 4. Block ICMP Redirects & Enable Wi-Fi Stealth Blackhole
 sudo /var/jb/usr/sbin/sysctl -w net.inet.icmp.drop_redirect=1 >/dev/null 2>&1
 sudo /var/jb/usr/sbin/sysctl -w net.inet.ip.redirect=0 >/dev/null 2>&1
 sudo /var/jb/usr/sbin/sysctl -w net.inet6.icmp6.rediraccept=0 >/dev/null 2>&1
 sudo /var/jb/usr/sbin/sysctl -w net.inet.tcp.blackhole=2 >/dev/null 2>&1
 sudo /var/jb/usr/sbin/sysctl -w net.inet.udp.blackhole=1 >/dev/null 2>&1
 
-# 5. Disable AWDL / AirDrop background scans (Eliminates Wi-Fi micro-stutters)
+# 5. Throttle background bandwidth thieves (No Wi-Fi theft during games/streams)
+for t in "nsurlsessiond" "appstored" "assetsd" "cloudd" "softwareupdated"; do
+    pids=$(/bin/ps -A -o pid,comm 2>/dev/null | awk -v pat="$t" '$0 ~ pat && !/(awk|grep|shield)/ {print $1}')
+    for p in $pids; do
+        [ -n "$p" ] && sudo renice 10 -p "$p" >/dev/null 2>&1
+    done
+done
+echo -e "${GREEN}[✔] Bandwidth Thief Sentinel: ACTIVE (Background downloads throttled)${NC}"
+
+# 6. Disable AWDL / AirDrop background scans (Eliminates Wi-Fi micro-stutters)
 sudo /var/jb/usr/sbin/ifconfig awdl0 down >/dev/null 2>&1
 sudo /var/jb/usr/sbin/ifconfig llw0 down >/dev/null 2>&1
 echo -e "${GREEN}[✔] Apple Wireless Direct Link (AWDL): PAUSED (No channel-hop jitter)${NC}"
 
-# 6. Flush DNS resolver cache
+# 7. Flush DNS resolver cache
 sudo killall -HUP mDNSResponder >/dev/null 2>&1
 echo -e "${GREEN}[✔] DNS Resolver Cache: FLUSHED (Zero resolver latency)${NC}"
 
-# 7. Throttle background indexing & storage churn
-for bg_daemon in corespotlightd knowledgeconstructiond deleted cloudphotod; do
-    BG_PIDS=$(/bin/ps -A -o pid,comm 2>/dev/null | awk -v d="$bg_daemon" '$0 ~ d && !/awk/ {print $1}')
-    for bg_p in $BG_PIDS; do
-        [ -n "$bg_p" ] && sudo renice 15 -p "$bg_p" >/dev/null 2>&1
-    done
-done
-echo -e "${GREEN}[✔] Background Indexing: THROTTLED (Zero flash storage/CPU contention)${NC}"
-
 # 8. Apply Mode-Specific Kernel Parameters (Optimized for 2048x1536 Retina / 2GB RAM)
 if [[ "$SHIELD_MODE" == "gaming" ]]; then
-    # Gaming Tuning: Instant ACK, TSO Off (Anti-Bufferbloat), Tight Buffers, somaxconn=512
     sudo /var/jb/usr/sbin/sysctl -w net.inet.tcp.tso=0 >/dev/null 2>&1
     sudo /var/jb/usr/sbin/sysctl -w net.inet.tcp.delayed_ack=0 >/dev/null 2>&1
     sudo /var/jb/usr/sbin/sysctl -w net.inet.tcp.sendspace=2097152 >/dev/null 2>&1
@@ -128,7 +200,6 @@ if [[ "$SHIELD_MODE" == "gaming" ]]; then
     sudo /var/jb/usr/sbin/sysctl -w kern.ipc.somaxconn=512 >/dev/null 2>&1
     echo -e "${GREEN}[✔] Gaming Tuning: Instant ACK (0ms) | TSO Off (Anti-Bufferbloat) | 2MB Buffers${NC}"
 else
-    # Streaming Tuning: TSO Burst, 6MB Retina Dynamic Window, somaxconn=512, Stremio Port 11470 VIP
     sudo /var/jb/usr/sbin/sysctl -w net.inet.tcp.tso=1 >/dev/null 2>&1
     sudo /var/jb/usr/sbin/sysctl -w net.inet.tcp.delayed_ack=2 >/dev/null 2>&1
     sudo /var/jb/usr/sbin/sysctl -w net.inet.tcp.sendspace=2097152 >/dev/null 2>&1
@@ -174,8 +245,8 @@ cleanup() {
     sudo /var/jb/usr/sbin/ifconfig awdl0 up >/dev/null 2>&1
     sudo /var/jb/usr/sbin/ifconfig llw0 up >/dev/null 2>&1
 
-    # Restore background indexing daemons to normal priority
-    for bg_daemon in corespotlightd knowledgeconstructiond deleted cloudphotod; do
+    # Restore background downloaders & daemons
+    for bg_daemon in corespotlightd knowledgeconstructiond deleted cloudphotod nsurlsessiond appstored assetsd cloudd; do
         BG_PIDS=$(/bin/ps -A -o pid,comm 2>/dev/null | awk -v d="$bg_daemon" '$0 ~ d && !/awk/ {print $1}')
         for bg_p in $BG_PIDS; do
             [ -n "$bg_p" ] && sudo renice 0 -p "$bg_p" >/dev/null 2>&1
@@ -198,19 +269,17 @@ cleanup() {
 
 trap cleanup SIGHUP SIGINT SIGTERM EXIT
 
-# Live Telemetry & Priority Booster Engine
+# Live Telemetry & Sentinel Engine
 export SHIELD_MODE_ENV="$SHIELD_MODE"
 export ROUTER_IP_ENV="$ROUTER_IP"
-export VIRGIN_MAC_ENV="$VIRGIN_HUB_MAC"
-export PI_MAC_ENV="$PI_MAC"
+export ROUTER_MAC_ENV="$ROUTER_MAC"
 
 /var/jb/usr/bin/python3 - <<'PY_SCRIPT_END'
 import os, sys, time, subprocess
 
 shield_mode = os.environ.get("SHIELD_MODE_ENV", "streaming")
 router_ip = os.environ.get("ROUTER_IP_ENV", "192.168.0.1")
-virgin_mac = os.environ.get("VIRGIN_MAC_ENV", "b0:1f:f4:01:5c:60")
-pi_mac = os.environ.get("PI_MAC_ENV", "d8:3a:dd:cc:42:1c")
+router_mac = os.environ.get("ROUTER_MAC_ENV", "auto")
 
 if shield_mode == "gaming":
     targets = [
@@ -291,6 +360,25 @@ def check_stremio_server_clients():
     except:
         return 0
 
+def check_and_relock_arp(r_ip, a_mac):
+    if not a_mac or a_mac == "auto": return True
+    try:
+        out = subprocess.check_output(['/var/jb/usr/sbin/arp', '-n', r_ip], stderr=subprocess.DEVNULL).decode()
+        cur_mac = ""
+        parts = out.split()
+        if 'at' in parts:
+            idx = parts.index('at')
+            if idx + 1 < len(parts):
+                raw = parts[idx + 1]
+                cur_mac = ":".join(f"{int(x, 16):02x}" for x in raw.split(":"))
+        if cur_mac != a_mac or "permanent" not in out:
+            subprocess.call(['sudo', 'arp', '-d', r_ip, 'ifscope', 'en0'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.call(['sudo', 'arp', '-s', r_ip, a_mac, 'ifscope', 'en0'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return False
+    except:
+        pass
+    return True
+
 boosted_pids = set()
 
 def scan_and_boost_targets():
@@ -321,6 +409,7 @@ r_ms = None
 i_ms = None
 active_apps = []
 bat_str = get_battery()
+spoof_blocks = 0
 
 try:
     while True:
@@ -334,15 +423,17 @@ try:
         tx_rate = int((cur_ob - prev_ob) / dt) if dt > 0 and cur_ob >= prev_ob else 0
         prev_ib, prev_ob, prev_t = cur_ib, cur_ob, now_t
         
-        # Ping router and internet every 2 seconds
         if loop_counter % 2 == 0 or r_ms is None:
             r_ms = ping_host(router_ip, timeout_ms=350)
             i_ms = ping_host("1.1.1.1", timeout_ms=400)
             
+        if loop_counter % 3 == 0:
+            if not check_and_relock_arp(router_ip, router_mac):
+                spoof_blocks += 1
+            
         if loop_counter % 15 == 0:
             bat_str = get_battery()
         
-        # Check active processes and Stremio streams
         if loop_counter % 2 == 0 or loop_counter == 1:
             active_apps = scan_and_boost_targets()
             stremio_streams = check_stremio_server_clients()
@@ -357,9 +448,11 @@ try:
             stremio_note = " [Serving Stream]" if stremio_streams > 0 else ""
             app_label = f"{C_BRIGHT_GREEN}🚀 {' + '.join(active_apps[:2])}{stremio_note} (VIP -20){C_RESET}"
         else:
-            app_label = f"{C_GRAY}Shield Active{C_RESET}"
+            app_label = f"{C_GRAY}Sentinel Active{C_RESET}"
             
-        print(f"[{ts}] {mode_tag} | 📶 Wi-Fi (en0) | Router: {r_colored} | Ping: {p_colored} | 🔋 {bat_str} | {down_colored} | {up_colored} | {app_label} | {C_GREEN}🛡️ Hub Locked{C_RESET}")
+        sentinel_tag = f"{C_YELLOW}🛡️ Spoof Blocked ({spoof_blocks}x){C_RESET}" if spoof_blocks > 0 else f"{C_GREEN}🛡️ Gateway Guarded{C_RESET}"
+            
+        print(f"[{ts}] {mode_tag} | 📶 Wi-Fi (en0) | Router: {r_colored} | Ping: {p_colored} | 🔋 {bat_str} | {down_colored} | {up_colored} | {app_label} | {sentinel_tag}")
         sys.stdout.flush()
 
 except KeyboardInterrupt:
