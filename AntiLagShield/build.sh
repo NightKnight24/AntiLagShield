@@ -11,10 +11,10 @@ IPAD_HOST="${1:-ipad}"
 SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-echo "==> Compiling AntiLagShield for arm64..."
+echo "==> Compiling AntiLagShield for arm64 (iOS 12.0 - 18.x Universal)..."
 xcrun -sdk iphoneos clang -arch arm64 -fobjc-arc \
     -isysroot "$SDK_PATH" \
-    -miphoneos-version-min=15.0 \
+    -miphoneos-version-min=12.0 \
     -framework UIKit -framework Foundation \
     "$DIR/main.m" -o "$DIR/AntiLagShield.app/AntiLagShield"
 

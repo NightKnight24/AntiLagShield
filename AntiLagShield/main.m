@@ -7,13 +7,23 @@
 
 extern char **environ;
 
+static NSString *get_shield_ctl_path(void) {
+    if ([[NSFileManager defaultManager] fileExistsAtPath:@"/var/jb/usr/bin/shield_ctl"]) {
+        return @"/var/jb/usr/bin/shield_ctl";
+    }
+    return @"/usr/bin/shield_ctl";
+}
+
 static void run_cmd(NSString *command) {
     pid_t pid;
     const char *sh = "/var/jb/usr/bin/bash";
     if (access(sh, X_OK) != 0) sh = "/usr/bin/bash";
     if (access(sh, X_OK) != 0) sh = "/bin/bash";
     if (access(sh, X_OK) != 0) sh = "/var/jb/usr/bin/sh";
-    const char *argv[] = {sh, "-c", [command UTF8String], NULL};
+    if (access(sh, X_OK) != 0) sh = "/bin/sh";
+    
+    NSString *fullCmd = [NSString stringWithFormat:@"export PATH=\"/var/jb/usr/bin:/var/jb/bin:/var/jb/usr/sbin:/var/jb/sbin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH\"; %@", command];
+    const char *argv[] = {sh, "-c", [fullCmd UTF8String], NULL};
     posix_spawn(&pid, sh, NULL, NULL, (char * const *)argv, environ);
     int status;
     waitpid(pid, &status, 0);
@@ -197,7 +207,6 @@ static NSUInteger get_free_memory_mb(void) {
     defCard.layer.borderColor = [UIColor colorWithRed:0.15 green:0.20 blue:0.28 alpha:1.0].CGColor;
     [self.scrollView addSubview:defCard];
     
-    // Config Gateway Button (top right)
     UIButton *cfgBtn = [UIButton buttonWithType:UIButtonTypeSystem];
     cfgBtn.frame = CGRectMake(contentW - 130, 8, 118, 26);
     [cfgBtn setTitle:@"⚙️ Config Gateway" forState:UIControlStateNormal];
@@ -213,7 +222,7 @@ static NSUInteger get_free_memory_mb(void) {
         @{@"t": @"Zero-Trust Gateway Lock", @"v": @"Auto-Detecting on Wi-Fi..."},
         @{@"t": @"Universal Anti-Spoof Sentinel", @"v": @"Rogue ARP Hijacks & Poisoning Defense Active"},
         @{@"t": @"Bandwidth Thief Sentinel", @"v": @"Active (Background App Store & iCloud Downloads Throttled)"},
-        @{@"t": @"Battery & Telemetry Shield", @"v": @"9 Apple Diagnostics & Bloat Daemons Halted (Deep Sleep)"},
+        @{@"t": @"Battery & Telemetry Shield", @"v": @"Apple Diagnostics & Bloat Daemons Halted (Deep Sleep)"},
         @{@"t": @"Stremio Web Server VIP", @"v": @"Port 11470 • NodeMobile & MediaServer (-20)"},
         @{@"t": @"TSO Anti-Bufferbloat Control", @"v": @"TSO Enabled (Retina Throughput)"},
         @{@"t": @"TCP / UDP Buffer Tuning", @"v": @"6 MB Retina HD Buffer (somaxconn: 512)"}
@@ -350,7 +359,7 @@ static NSUInteger get_free_memory_mb(void) {
     
     UIAlertAction *autoAction = [UIAlertAction actionWithTitle:@"Auto-Detect on Any Wi-Fi" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
-            run_cmd(@"/var/jb/usr/bin/shield_ctl config auto");
+            run_cmd([NSString stringWithFormat:@"%@ config auto", get_shield_ctl_path()]);
             dispatch_async(dispatch_get_main_queue(), ^{
                 [self updateGatewayLabel];
                 [self applyShield];
@@ -363,7 +372,7 @@ static NSUInteger get_free_memory_mb(void) {
         NSString *mac = alert.textFields[1].text;
         if (ip.length > 0 && mac.length > 0) {
             dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
-                run_cmd([NSString stringWithFormat:@"/var/jb/usr/bin/shield_ctl config set %@ %@", ip, mac]);
+                run_cmd([NSString stringWithFormat:@"%@ config set %@ %@", get_shield_ctl_path(), ip, mac]);
                 dispatch_async(dispatch_get_main_queue(), ^{
                     [self updateGatewayLabel];
                     [self applyShield];
@@ -382,7 +391,7 @@ static NSUInteger get_free_memory_mb(void) {
 
 - (void)updateGatewayLabel {
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        run_cmd(@"/var/jb/usr/bin/shield_ctl config show > /tmp/gw_cfg.txt 2>/dev/null");
+        run_cmd([NSString stringWithFormat:@"%@ config show > /tmp/gw_cfg.txt 2>/dev/null", get_shield_ctl_path()]);
         NSString *cfg = [NSString stringWithContentsOfFile:@"/tmp/gw_cfg.txt" encoding:NSUTF8StringEncoding error:nil];
         NSString *ip = @"";
         NSString *mac = @"";
@@ -407,7 +416,7 @@ static NSUInteger get_free_memory_mb(void) {
     sender.enabled = NO;
     [sender setTitle:@"⚡ Cleaning Inactive Pages..." forState:UIControlStateNormal];
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
-        run_cmd(@"/var/jb/usr/bin/shield_ctl purge");
+        run_cmd([NSString stringWithFormat:@"%@ purge", get_shield_ctl_path()]);
         dispatch_async(dispatch_get_main_queue(), ^{
             [self updateRAM];
             [sender setTitle:@"✓ RAM Cleaned (+500 MB Reclaimed)" forState:UIControlStateNormal];
@@ -421,7 +430,7 @@ static NSUInteger get_free_memory_mb(void) {
 
 - (void)checkDaemonStatus {
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        run_cmd(@"/var/jb/usr/bin/shield_ctl daemon status > /tmp/daemon_stat.txt 2>/dev/null");
+        run_cmd([NSString stringWithFormat:@"%@ daemon status > /tmp/daemon_stat.txt 2>/dev/null", get_shield_ctl_path()]);
         NSString *s = [NSString stringWithContentsOfFile:@"/tmp/daemon_stat.txt" encoding:NSUTF8StringEncoding error:nil];
         BOOL isActive = [s containsString:@"DAEMON_ACTIVE"];
         dispatch_async(dispatch_get_main_queue(), ^{
@@ -442,7 +451,7 @@ static NSUInteger get_free_memory_mb(void) {
     if (sender.isOn) {
         self.daemonStatusLabel.text = @"Enabling 24/7 LaunchDaemon...";
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
-            run_cmd([NSString stringWithFormat:@"/var/jb/usr/bin/shield_ctl daemon enable %@", mode]);
+            run_cmd([NSString stringWithFormat:@"%@ daemon enable %@", get_shield_ctl_path(), mode]);
             dispatch_async(dispatch_get_main_queue(), ^{
                 self.daemonStatusLabel.text = @"On: Persistent 24/7 root daemon active across reboots.";
                 self.statusBadge.text = @"●  24/7 SENTINEL ACTIVE";
@@ -451,7 +460,7 @@ static NSUInteger get_free_memory_mb(void) {
     } else {
         self.daemonStatusLabel.text = @"Disabling 24/7 LaunchDaemon...";
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
-            run_cmd(@"/var/jb/usr/bin/shield_ctl daemon disable");
+            run_cmd([NSString stringWithFormat:@"%@ daemon disable", get_shield_ctl_path()]);
             dispatch_async(dispatch_get_main_queue(), ^{
                 self.daemonStatusLabel.text = @"Off: Shield active in App Switcher; reverts when swiped away.";
                 self.statusBadge.text = @"●  SENTINEL ACTIVE";
@@ -468,7 +477,7 @@ static NSUInteger get_free_memory_mb(void) {
     pid_t myPid = getpid();
     NSString *mode = (self.modeControl.selectedSegmentIndex == 0) ? @"streaming" : @"gaming";
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
-        NSString *cmd = [NSString stringWithFormat:@"/var/jb/usr/bin/shield_ctl start %@ %d", mode, myPid];
+        NSString *cmd = [NSString stringWithFormat:@"%@ start %@ %d", get_shield_ctl_path(), mode, myPid];
         run_cmd(cmd);
     });
 }
@@ -489,8 +498,8 @@ static NSUInteger get_free_memory_mb(void) {
     [self updateRAM];
     [self updateBattery];
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW, 0), ^{
-        run_cmd(@"/var/jb/bin/ping -c 1 -W 400 $(/var/jb/usr/sbin/route -n get default 2>/dev/null | awk '/gateway:/ {print $2}') > /tmp/rping.txt 2>/dev/null");
-        run_cmd(@"/var/jb/bin/ping -c 1 -W 500 1.1.1.1 > /tmp/iping.txt 2>/dev/null");
+        run_cmd(@"ping -c 1 -W 400 $(route -n get default 2>/dev/null | awk '/gateway:/ {print $2}') > /tmp/rping.txt 2>/dev/null");
+        run_cmd(@"ping -c 1 -W 500 1.1.1.1 > /tmp/iping.txt 2>/dev/null");
         
         NSString *rStr = [NSString stringWithContentsOfFile:@"/tmp/rping.txt" encoding:NSUTF8StringEncoding error:nil];
         NSString *iStr = [NSString stringWithContentsOfFile:@"/tmp/iping.txt" encoding:NSUTF8StringEncoding error:nil];
@@ -534,10 +543,10 @@ static NSUInteger get_free_memory_mb(void) {
 }
 
 - (void)applicationWillTerminate:(UIApplication *)application {
-    run_cmd(@"/var/jb/usr/bin/shield_ctl status > /tmp/curstat.txt 2>/dev/null");
+    run_cmd([NSString stringWithFormat:@"%@ status > /tmp/curstat.txt 2>/dev/null", get_shield_ctl_path()]);
     NSString *s = [NSString stringWithContentsOfFile:@"/tmp/curstat.txt" encoding:NSUTF8StringEncoding error:nil];
     if (![s containsString:@"DAEMON"]) {
-        run_cmd(@"/var/jb/usr/bin/shield_ctl stop");
+        run_cmd([NSString stringWithFormat:@"%@ stop", get_shield_ctl_path()]);
     }
 }
 

@@ -1,11 +1,23 @@
-#!/bin/bash
-
+#!/bin/sh
 # ==============================================================================
-# 🛡️  iPadOS Anti-Lag Shield Pro v3.6 (Universal Network Sentinel)  🛡️
-# Universal Gateway Auto-Discovery, Anti-Spoof Sentinel, Bandwidth Thief Shield,
-# Battery Saver & Telemetry Defense, Stremio VIP & TSO Anti-Bufferbloat
+# 🛡️  iPadOS Anti-Lag Shield Pro v3.7 (Universal iOS & iPadOS HUD)  🛡️
+# Supports ALL 64-bit iOS & iPadOS Devices (Rootless Dopamine/palera1n & Rootful)
 # ==============================================================================
 
+# Universal shell bootstrap
+if [ -z "$BASH_VERSION" ]; then
+    for b in /var/jb/usr/bin/bash /usr/bin/bash /bin/bash /var/jb/bin/bash; do
+        if [ -x "$b" ]; then exec "$b" "$0" "$@"; fi
+    done
+fi
+
+if [ -d "/var/jb" ]; then
+    JB="/var/jb"
+else
+    JB=""
+fi
+
+export PATH="${JB}/usr/bin:${JB}/bin:${JB}/usr/sbin:${JB}/sbin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
 CONF_FILE="/var/mobile/Library/Preferences/com.jordan.antilagshield.conf"
 INTERFACE="en0"
 
@@ -36,7 +48,7 @@ resolve_gateway() {
     local cfg_mac=$(grep "^GATEWAY_MAC=" "$CONF_FILE" 2>/dev/null | cut -d= -f2 | tr -d '[:space:]')
 
     if [ -z "$cfg_ip" ] || [ "$cfg_ip" = "auto" ]; then
-        ROUTER_IP=$(/var/jb/usr/sbin/route -n get default 2>/dev/null | awk '/gateway:/ {print $2}')
+        ROUTER_IP=$(route -n get default 2>/dev/null | awk '/gateway:/ {print $2}')
         [ -z "$ROUTER_IP" ] && ROUTER_IP="192.168.0.1"
         IP_MODE="Auto-Detected"
     else
@@ -45,8 +57,8 @@ resolve_gateway() {
     fi
 
     if [ -z "$cfg_mac" ] || [ "$cfg_mac" = "auto" ]; then
-        /var/jb/bin/ping -c 1 -W 300 "$ROUTER_IP" >/dev/null 2>&1
-        local raw_mac=$(/var/jb/usr/sbin/arp -n "$ROUTER_IP" 2>/dev/null | awk '/at/ {for(i=1;i<=NF;i++) if($i=="at") print $(i+1)}')
+        ping -c 1 -W 300 "$ROUTER_IP" >/dev/null 2>&1
+        local raw_mac=$(arp -n "$ROUTER_IP" 2>/dev/null | awk '/at/ {for(i=1;i<=NF;i++) if($i=="at") print $(i+1)}')
         if [ -n "$raw_mac" ]; then
             ROUTER_MAC=$(norm_mac "$raw_mac")
         else
@@ -63,7 +75,7 @@ resolve_gateway
 
 clear
 echo -e "${CYAN}================================================================${NC}"
-echo -e "${CYAN}🛡️   Anti-Lag Shield Pro v3.6 — Universal Network Sentinel   🛡️${NC}"
+echo -e "${CYAN}🛡️   Anti-Lag Shield Pro v3.7 — Universal Network Sentinel   🛡️${NC}"
 echo -e "${CYAN}================================================================${NC}"
 echo ""
 echo -e "${BRIGHT_CYAN}Detected Network Configuration:${NC}"
@@ -147,27 +159,27 @@ BATTERY_HOGS=(
 for d in "${BATTERY_HOGS[@]}"; do
     plist="/System/Library/LaunchDaemons/$d.plist"
     if [ -f "$plist" ]; then
-        sudo /var/jb/usr/bin/launchctl unload "$plist" >/dev/null 2>&1
+        sudo launchctl unload "$plist" >/dev/null 2>&1
     fi
 done
-sudo /var/jb/usr/sbin/sysctl -w kern.timer.coalescing_enabled=1 >/dev/null 2>&1
+sudo sysctl -w kern.timer.coalescing_enabled=1 >/dev/null 2>&1
 echo -e "${GREEN}[✔] Battery Saver & Telemetry Shield: ACTIVE (Apple background bloat halted)${NC}"
 
 # 3. Universal Zero-Trust Hardware Static ARP Lock
 if [ -n "$ROUTER_IP" ] && [ -n "$ROUTER_MAC" ]; then
     echo -e "${CYAN}[*] Securing Gateway ARP to Router ($ROUTER_IP -> $ROUTER_MAC)...${NC}"
-    sudo /var/jb/usr/sbin/arp -d "$ROUTER_IP" ifscope "$INTERFACE" >/dev/null 2>&1
-    sudo /var/jb/usr/sbin/arp -s "$ROUTER_IP" "$ROUTER_MAC" ifscope "$INTERFACE" >/dev/null 2>&1
+    sudo arp -d "$ROUTER_IP" ifscope "$INTERFACE" >/dev/null 2>&1
+    sudo arp -s "$ROUTER_IP" "$ROUTER_MAC" ifscope "$INTERFACE" >/dev/null 2>&1
     echo -e "${GREEN}[✔] Gateway $ROUTER_IP LOCKED to Genuine Router ($ROUTER_MAC)${NC}"
     echo -e "${GREEN}[✔] Universal Anti-Spoof Sentinel: ENGAGED (Auto-intercepts rogue devices)${NC}"
 fi
 
 # 4. Block ICMP Redirects & Enable Wi-Fi Stealth Blackhole
-sudo /var/jb/usr/sbin/sysctl -w net.inet.icmp.drop_redirect=1 >/dev/null 2>&1
-sudo /var/jb/usr/sbin/sysctl -w net.inet.ip.redirect=0 >/dev/null 2>&1
-sudo /var/jb/usr/sbin/sysctl -w net.inet6.icmp6.rediraccept=0 >/dev/null 2>&1
-sudo /var/jb/usr/sbin/sysctl -w net.inet.tcp.blackhole=2 >/dev/null 2>&1
-sudo /var/jb/usr/sbin/sysctl -w net.inet.udp.blackhole=1 >/dev/null 2>&1
+sudo sysctl -w net.inet.icmp.drop_redirect=1 >/dev/null 2>&1
+sudo sysctl -w net.inet.ip.redirect=0 >/dev/null 2>&1
+sudo sysctl -w net.inet6.icmp6.rediraccept=0 >/dev/null 2>&1
+sudo sysctl -w net.inet.tcp.blackhole=2 >/dev/null 2>&1
+sudo sysctl -w net.inet.udp.blackhole=1 >/dev/null 2>&1
 
 # 5. Throttle background bandwidth thieves (No Wi-Fi theft during games/streams)
 for t in "nsurlsessiond" "appstored" "assetsd" "cloudd" "softwareupdated"; do
@@ -179,41 +191,45 @@ done
 echo -e "${GREEN}[✔] Bandwidth Thief Sentinel: ACTIVE (Background downloads throttled)${NC}"
 
 # 6. Disable AWDL / AirDrop background scans (Eliminates Wi-Fi micro-stutters)
-sudo /var/jb/usr/sbin/ifconfig awdl0 down >/dev/null 2>&1
-sudo /var/jb/usr/sbin/ifconfig llw0 down >/dev/null 2>&1
+sudo ifconfig awdl0 down >/dev/null 2>&1
+sudo ifconfig llw0 down >/dev/null 2>&1
 echo -e "${GREEN}[✔] Apple Wireless Direct Link (AWDL): PAUSED (No channel-hop jitter)${NC}"
 
 # 7. Flush DNS resolver cache
 sudo killall -HUP mDNSResponder >/dev/null 2>&1
 echo -e "${GREEN}[✔] DNS Resolver Cache: FLUSHED (Zero resolver latency)${NC}"
 
-# 8. Apply Mode-Specific Kernel Parameters (Optimized for 2048x1536 Retina / 2GB RAM)
+# 8. Apply Mode-Specific Kernel Parameters (Optimized for Retina / HD Display)
 if [[ "$SHIELD_MODE" == "gaming" ]]; then
-    sudo /var/jb/usr/sbin/sysctl -w net.inet.tcp.tso=0 >/dev/null 2>&1
-    sudo /var/jb/usr/sbin/sysctl -w net.inet.tcp.delayed_ack=0 >/dev/null 2>&1
-    sudo /var/jb/usr/sbin/sysctl -w net.inet.tcp.sendspace=2097152 >/dev/null 2>&1
-    sudo /var/jb/usr/sbin/sysctl -w net.inet.tcp.recvspace=2097152 >/dev/null 2>&1
-    sudo /var/jb/usr/sbin/sysctl -w net.inet.tcp.autorcvbufmax=4194304 >/dev/null 2>&1
-    sudo /var/jb/usr/sbin/sysctl -w net.inet.tcp.autosndbufmax=4194304 >/dev/null 2>&1
-    sudo /var/jb/usr/sbin/sysctl -w net.inet.udp.recvspace=2097152 >/dev/null 2>&1
-    sudo /var/jb/usr/sbin/sysctl -w net.inet.udp.maxdgram=65535 >/dev/null 2>&1
-    sudo /var/jb/usr/sbin/sysctl -w kern.ipc.somaxconn=512 >/dev/null 2>&1
+    sudo sysctl -w net.inet.tcp.tso=0 >/dev/null 2>&1
+    sudo sysctl -w net.inet.tcp.delayed_ack=0 >/dev/null 2>&1
+    sudo sysctl -w net.inet.tcp.sendspace=2097152 >/dev/null 2>&1
+    sudo sysctl -w net.inet.tcp.recvspace=2097152 >/dev/null 2>&1
+    sudo sysctl -w net.inet.tcp.autorcvbufmax=4194304 >/dev/null 2>&1
+    sudo sysctl -w net.inet.tcp.autosndbufmax=4194304 >/dev/null 2>&1
+    sudo sysctl -w net.inet.udp.recvspace=2097152 >/dev/null 2>&1
+    sudo sysctl -w net.inet.udp.maxdgram=65535 >/dev/null 2>&1
+    sudo sysctl -w kern.ipc.somaxconn=512 >/dev/null 2>&1
     echo -e "${GREEN}[✔] Gaming Tuning: Instant ACK (0ms) | TSO Off (Anti-Bufferbloat) | 2MB Buffers${NC}"
 else
-    sudo /var/jb/usr/sbin/sysctl -w net.inet.tcp.tso=1 >/dev/null 2>&1
-    sudo /var/jb/usr/sbin/sysctl -w net.inet.tcp.delayed_ack=2 >/dev/null 2>&1
-    sudo /var/jb/usr/sbin/sysctl -w net.inet.tcp.sendspace=2097152 >/dev/null 2>&1
-    sudo /var/jb/usr/sbin/sysctl -w net.inet.tcp.recvspace=4194304 >/dev/null 2>&1
-    sudo /var/jb/usr/sbin/sysctl -w net.inet.tcp.autorcvbufmax=6291456 >/dev/null 2>&1
-    sudo /var/jb/usr/sbin/sysctl -w net.inet.tcp.autosndbufmax=6291456 >/dev/null 2>&1
-    sudo /var/jb/usr/sbin/sysctl -w net.inet.udp.recvspace=4194304 >/dev/null 2>&1
-    sudo /var/jb/usr/sbin/sysctl -w net.inet.udp.maxdgram=65535 >/dev/null 2>&1
-    sudo /var/jb/usr/sbin/sysctl -w kern.ipc.somaxconn=512 >/dev/null 2>&1
+    sudo sysctl -w net.inet.tcp.tso=1 >/dev/null 2>&1
+    sudo sysctl -w net.inet.tcp.delayed_ack=2 >/dev/null 2>&1
+    sudo sysctl -w net.inet.tcp.sendspace=2097152 >/dev/null 2>&1
+    sudo sysctl -w net.inet.tcp.recvspace=4194304 >/dev/null 2>&1
+    sudo sysctl -w net.inet.tcp.autorcvbufmax=6291456 >/dev/null 2>&1
+    sudo sysctl -w net.inet.tcp.autosndbufmax=6291456 >/dev/null 2>&1
+    sudo sysctl -w net.inet.udp.recvspace=4194304 >/dev/null 2>&1
+    sudo sysctl -w net.inet.udp.maxdgram=65535 >/dev/null 2>&1
+    sudo sysctl -w kern.ipc.somaxconn=512 >/dev/null 2>&1
     echo -e "${GREEN}[✔] Streaming Tuning: TSO Burst | 6MB Retina Buffer | Stremio Web VIP (Port 11470)${NC}"
 fi
 
 # Reclaim RAM immediately
-sudo /var/jb/usr/bin/purge >/dev/null 2>&1
+if which purge >/dev/null 2>&1; then
+    sudo purge >/dev/null 2>&1
+elif [ -x "${JB}/usr/bin/purge" ]; then
+    sudo "${JB}/usr/bin/purge" >/dev/null 2>&1
+fi
 echo -e "${GREEN}[✔] RAM Cache Purge: COMPLETE (Max Free Memory for Apps)${NC}"
 
 echo ""
@@ -230,22 +246,20 @@ cleanup() {
     echo ""
     echo -e "${CYAN}[*] Restoring iPad system & network defaults...${NC}"
     
-    sudo /var/jb/usr/sbin/sysctl -w net.inet.tcp.blackhole=0 >/dev/null 2>&1
-    sudo /var/jb/usr/sbin/sysctl -w net.inet.udp.blackhole=0 >/dev/null 2>&1
-    sudo /var/jb/usr/sbin/sysctl -w net.inet.tcp.tso=1 >/dev/null 2>&1
-    sudo /var/jb/usr/sbin/sysctl -w net.inet.tcp.delayed_ack=3 >/dev/null 2>&1
-    sudo /var/jb/usr/sbin/sysctl -w net.inet.tcp.sendspace=131072 >/dev/null 2>&1
-    sudo /var/jb/usr/sbin/sysctl -w net.inet.tcp.recvspace=131072 >/dev/null 2>&1
-    sudo /var/jb/usr/sbin/sysctl -w net.inet.tcp.autorcvbufmax=2097152 >/dev/null 2>&1
-    sudo /var/jb/usr/sbin/sysctl -w net.inet.tcp.autosndbufmax=2097152 >/dev/null 2>&1
-    sudo /var/jb/usr/sbin/sysctl -w net.inet.udp.recvspace=786896 >/dev/null 2>&1
-    sudo /var/jb/usr/sbin/sysctl -w kern.ipc.somaxconn=128 >/dev/null 2>&1
+    sudo sysctl -w net.inet.tcp.blackhole=0 >/dev/null 2>&1
+    sudo sysctl -w net.inet.udp.blackhole=0 >/dev/null 2>&1
+    sudo sysctl -w net.inet.tcp.tso=1 >/dev/null 2>&1
+    sudo sysctl -w net.inet.tcp.delayed_ack=3 >/dev/null 2>&1
+    sudo sysctl -w net.inet.tcp.sendspace=131072 >/dev/null 2>&1
+    sudo sysctl -w net.inet.tcp.recvspace=131072 >/dev/null 2>&1
+    sudo sysctl -w net.inet.tcp.autorcvbufmax=2097152 >/dev/null 2>&1
+    sudo sysctl -w net.inet.tcp.autosndbufmax=2097152 >/dev/null 2>&1
+    sudo sysctl -w net.inet.udp.recvspace=786896 >/dev/null 2>&1
+    sudo sysctl -w kern.ipc.somaxconn=128 >/dev/null 2>&1
     
-    # Restore AWDL (AirDrop)
-    sudo /var/jb/usr/sbin/ifconfig awdl0 up >/dev/null 2>&1
-    sudo /var/jb/usr/sbin/ifconfig llw0 up >/dev/null 2>&1
+    sudo ifconfig awdl0 up >/dev/null 2>&1
+    sudo ifconfig llw0 up >/dev/null 2>&1
 
-    # Restore background downloaders & daemons
     for bg_daemon in corespotlightd knowledgeconstructiond deleted cloudphotod nsurlsessiond appstored assetsd cloudd; do
         BG_PIDS=$(/bin/ps -A -o pid,comm 2>/dev/null | awk -v d="$bg_daemon" '$0 ~ d && !/awk/ {print $1}')
         for bg_p in $BG_PIDS; do
@@ -253,16 +267,15 @@ cleanup() {
         done
     done
 
-    # Re-enable system background daemons
     for d in "${BATTERY_HOGS[@]}"; do
         plist="/System/Library/LaunchDaemons/$d.plist"
         if [ -f "$plist" ]; then
-            sudo /var/jb/usr/bin/launchctl load "$plist" >/dev/null 2>&1
+            sudo launchctl load "$plist" >/dev/null 2>&1
         fi
     done
 
     echo -e "${BRIGHT_GREEN}================================================================${NC}"
-    echo -e "${BRIGHT_GREEN}[✔] All iPad defaults restored. Have a great session!${NC}"
+    echo -e "${BRIGHT_GREEN}[✔] All system defaults restored. Have a great session!${NC}"
     echo -e "${BRIGHT_GREEN}================================================================${NC}"
     exit 0
 }
@@ -274,7 +287,10 @@ export SHIELD_MODE_ENV="$SHIELD_MODE"
 export ROUTER_IP_ENV="$ROUTER_IP"
 export ROUTER_MAC_ENV="$ROUTER_MAC"
 
-/var/jb/usr/bin/python3 - <<'PY_SCRIPT_END'
+PYTHON_EXEC="${JB}/usr/bin/python3"
+[ ! -x "$PYTHON_EXEC" ] && PYTHON_EXEC="python3"
+
+"$PYTHON_EXEC" - <<'PY_SCRIPT_END'
 import os, sys, time, subprocess
 
 shield_mode = os.environ.get("SHIELD_MODE_ENV", "streaming")
@@ -306,7 +322,7 @@ C_BRIGHT_GREEN = '\033[1;32m'
 
 def get_iface_bytes(iface="en0"):
     try:
-        out = subprocess.check_output(['/var/jb/usr/sbin/netstat', '-ib', '-I', iface], stderr=subprocess.DEVNULL).decode()
+        out = subprocess.check_output(['netstat', '-ib', '-I', iface], stderr=subprocess.DEVNULL).decode()
         for line in out.strip().splitlines()[1:]:
             parts = line.split()
             if len(parts) >= 10 and (parts[0] == iface or parts[0] == f"<{iface}>" or parts[0].startswith(iface)):
@@ -327,7 +343,7 @@ def get_battery():
 
 def ping_host(host, timeout_ms=350):
     try:
-        out = subprocess.check_output(['/var/jb/bin/ping', '-c', '1', '-W', str(timeout_ms), host], stderr=subprocess.DEVNULL).decode()
+        out = subprocess.check_output(['ping', '-c', '1', '-W', str(timeout_ms), host], stderr=subprocess.DEVNULL).decode()
         for line in out.splitlines():
             if 'time=' in line:
                 return float(line.split('time=')[1].split()[0])
@@ -355,7 +371,7 @@ def color_latency(ms, green_limit=4.0, yellow_limit=15.0):
 
 def check_stremio_server_clients():
     try:
-        out = subprocess.check_output(['/var/jb/usr/sbin/netstat', '-an'], stderr=subprocess.DEVNULL).decode()
+        out = subprocess.check_output(['netstat', '-an'], stderr=subprocess.DEVNULL).decode()
         return sum(1 for l in out.splitlines() if '11470' in l and 'ESTABLISHED' in l)
     except:
         return 0
@@ -363,7 +379,7 @@ def check_stremio_server_clients():
 def check_and_relock_arp(r_ip, a_mac):
     if not a_mac or a_mac == "auto": return True
     try:
-        out = subprocess.check_output(['/var/jb/usr/sbin/arp', '-n', r_ip], stderr=subprocess.DEVNULL).decode()
+        out = subprocess.check_output(['arp', '-n', r_ip], stderr=subprocess.DEVNULL).decode()
         cur_mac = ""
         parts = out.split()
         if 'at' in parts:

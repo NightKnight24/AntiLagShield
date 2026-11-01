@@ -1,16 +1,28 @@
-#!/var/jb/usr/bin/bash
+#!/bin/sh
 # ==============================================================================
-# 🛡️ Anti-Lag Shield Pro v3.6 Controller (Universal Wi-Fi & Battery Edition)
-# Universal Auto-Detect Gateway, Manual Override, Network Sentinel & Anti-Spoof,
-# Bandwidth Thief Suppression, Battery Saver & Telemetry Defense, Stremio VIP
+# 🛡️ Anti-Lag Shield Pro v3.7 Controller (Universal iOS & iPadOS 11 - 18 Edition)
+# Supports ALL 64-bit iOS & iPadOS Devices (Rootless Dopamine/palera1n & Rootful)
 # ==============================================================================
 
-export PATH="/var/jb/usr/bin:/var/jb/bin:/var/jb/usr/sbin:/var/jb/sbin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+# Universal shell bootstrap
+if [ -z "$BASH_VERSION" ]; then
+    for b in /var/jb/usr/bin/bash /usr/bin/bash /bin/bash /var/jb/bin/bash; do
+        if [ -x "$b" ]; then exec "$b" "$0" "$@"; fi
+    done
+fi
+
+if [ -d "/var/jb" ]; then
+    JB="/var/jb"
+else
+    JB=""
+fi
+
+export PATH="${JB}/usr/bin:${JB}/bin:${JB}/usr/sbin:${JB}/sbin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
 
 CONF_FILE="/var/mobile/Library/Preferences/com.jordan.antilagshield.conf"
 STATE_FILE="/var/mobile/Library/Caches/shield_state.txt"
 PID_FILE="/var/mobile/Library/Caches/shield_watchdog.pid"
-DAEMON_PLIST="/var/jb/Library/LaunchDaemons/com.jordan.antilagshield.plist"
+DAEMON_PLIST="${JB}/Library/LaunchDaemons/com.jordan.antilagshield.plist"
 
 ACTION="$1"
 MODE="${2:-streaming}"
@@ -49,7 +61,7 @@ resolve_gateway() {
 
     # Detect Gateway IP
     if [ -z "$cfg_ip" ] || [ "$cfg_ip" = "auto" ]; then
-        ROUTER_IP=$(/var/jb/usr/sbin/route -n get default 2>/dev/null | awk '/gateway:/ {print $2}')
+        ROUTER_IP=$(route -n get default 2>/dev/null | awk '/gateway:/ {print $2}')
         [ -z "$ROUTER_IP" ] && ROUTER_IP="192.168.0.1"
     else
         ROUTER_IP="$cfg_ip"
@@ -57,8 +69,8 @@ resolve_gateway() {
 
     # Detect Gateway MAC
     if [ -z "$cfg_mac" ] || [ "$cfg_mac" = "auto" ]; then
-        /var/jb/bin/ping -c 1 -W 300 "$ROUTER_IP" >/dev/null 2>&1
-        local raw_mac=$(/var/jb/usr/sbin/arp -n "$ROUTER_IP" 2>/dev/null | awk '/at/ {for(i=1;i<=NF;i++) if($i=="at") print $(i+1)}')
+        ping -c 1 -W 300 "$ROUTER_IP" >/dev/null 2>&1
+        local raw_mac=$(arp -n "$ROUTER_IP" 2>/dev/null | awk '/at/ {for(i=1;i<=NF;i++) if($i=="at") print $(i+1)}')
         if [ -n "$raw_mac" ]; then
             ROUTER_MAC=$(norm_mac "$raw_mac")
         else
@@ -69,7 +81,7 @@ resolve_gateway() {
     fi
 }
 
-# Apple Background Telemetry & Battery-Draining Daemons
+# Apple Background Telemetry & Battery-Draining Daemons (Safely queried across all iOS versions)
 BATTERY_HOG_DAEMONS=(
     "com.apple.tipsd"
     "com.apple.tailspind"
@@ -86,7 +98,7 @@ apply_battery_saver() {
     for d in "${BATTERY_HOG_DAEMONS[@]}"; do
         local plist="/System/Library/LaunchDaemons/$d.plist"
         if [ -f "$plist" ]; then
-            sudo /var/jb/usr/bin/launchctl unload "$plist" >/dev/null 2>&1
+            sudo launchctl unload "$plist" >/dev/null 2>&1
         fi
     done
     sudo sysctl -w kern.timer.coalescing_enabled=1 >/dev/null 2>&1
@@ -96,7 +108,7 @@ revert_battery_saver() {
     for d in "${BATTERY_HOG_DAEMONS[@]}"; do
         local plist="/System/Library/LaunchDaemons/$d.plist"
         if [ -f "$plist" ]; then
-            sudo /var/jb/usr/bin/launchctl load "$plist" >/dev/null 2>&1
+            sudo launchctl load "$plist" >/dev/null 2>&1
         fi
     done
 }
@@ -111,6 +123,14 @@ throttle_bandwidth_thieves() {
             fi
         done
     done
+}
+
+purge_inactive_memory() {
+    if which purge >/dev/null 2>&1; then
+        sudo purge >/dev/null 2>&1
+    elif [ -x "${JB}/usr/bin/purge" ]; then
+        sudo "${JB}/usr/bin/purge" >/dev/null 2>&1
+    fi
 }
 
 apply_optimizations() {
@@ -149,7 +169,7 @@ apply_optimizations() {
     # 7. Flush DNS resolver cache
     sudo killall -HUP mDNSResponder >/dev/null 2>&1
 
-    # 8. Throttle background indexing & heavy storage churn
+    # 8. Throttle background indexing & storage churn
     for bg_daemon in corespotlightd knowledgeconstructiond deleted cloudphotod; do
         BG_PIDS=$(/bin/ps -A -o pid,comm 2>/dev/null | awk -v d="$bg_daemon" '$0 ~ d && !/awk/ {print $1}')
         for bg_p in $BG_PIDS; do
@@ -157,7 +177,7 @@ apply_optimizations() {
         done
     done
 
-    # 9. Kernel TCP / UDP Buffer & TSO Offload Tuning (Retina Display Optimized)
+    # 9. Kernel TCP / UDP Buffer & TSO Offload Tuning
     if [ "$target_mode" = "gaming" ]; then
         # Gaming: Instant ACK (0ms), TSO Off (Anti-Bufferbloat), Tight Buffers, somaxconn=512
         sudo sysctl -w net.inet.tcp.tso=0 >/dev/null 2>&1
@@ -183,7 +203,7 @@ apply_optimizations() {
     fi
 
     # 10. Reclaim Inactive Memory (RAM Purge)
-    sudo /var/jb/usr/bin/purge >/dev/null 2>&1
+    purge_inactive_memory
 
     # 11. Hardware Media & Audio Decoder Boost
     MS_PID=$(/bin/ps -A -o pid,comm 2>/dev/null | awk '/mediaserverd/ && !/awk/ {print $1}')
@@ -228,6 +248,12 @@ revert_optimizations() {
     revert_battery_saver
 }
 
+SHIELD_EXEC="${JB}/usr/bin/shield_ctl"
+[ ! -f "$SHIELD_EXEC" ] && SHIELD_EXEC="/usr/bin/shield_ctl"
+BASH_EXEC="${JB}/usr/bin/bash"
+[ ! -x "$BASH_EXEC" ] && BASH_EXEC="/bin/bash"
+[ ! -x "$BASH_EXEC" ] && BASH_EXEC="bash"
+
 case "$ACTION" in
     start)
         if [ -f "$PID_FILE" ]; then
@@ -244,7 +270,7 @@ case "$ACTION" in
         mkdir -p /var/mobile/Library/Caches
         echo "ACTIVE:$MODE:$APP_PID" > "$STATE_FILE"
 
-        nohup /var/jb/usr/bin/bash /var/jb/usr/bin/shield_ctl _watchdog "$APP_PID" "$ROUTER_IP" "$INTERFACE" "$ROUTER_MAC" >/dev/null 2>&1 &
+        nohup "$BASH_EXEC" "$SHIELD_EXEC" _watchdog "$APP_PID" "$ROUTER_IP" "$INTERFACE" "$ROUTER_MAC" >/dev/null 2>&1 &
         echo $! > "$PID_FILE"
 
         echo "SHIELD_STARTED:$MODE"
@@ -256,7 +282,7 @@ case "$ACTION" in
         mkdir -p /var/mobile/Library/Caches
         echo "ACTIVE:$MODE:DAEMON" > "$STATE_FILE"
 
-        exec /var/jb/usr/bin/shield_ctl _watchdog "DAEMON" "$ROUTER_IP" "$INTERFACE" "$ROUTER_MAC"
+        exec "$BASH_EXEC" "$SHIELD_EXEC" _watchdog "DAEMON" "$ROUTER_IP" "$INTERFACE" "$ROUTER_MAC"
         ;;
 
     _watchdog)
@@ -306,7 +332,7 @@ case "$ACTION" in
             # Periodic memory refresh every ~2 minutes
             LOOP_COUNT=$((LOOP_COUNT + 1))
             if [ $LOOP_COUNT -ge 40 ]; then
-                sudo /var/jb/usr/bin/purge >/dev/null 2>&1
+                purge_inactive_memory
                 LOOP_COUNT=0
             fi
 
@@ -314,7 +340,7 @@ case "$ACTION" in
         done
 
         if [ "$TARGET_PID" != "DAEMON" ]; then
-            /var/jb/usr/bin/shield_ctl stop
+            "$SHIELD_EXEC" stop
         fi
         ;;
 
@@ -335,12 +361,12 @@ case "$ACTION" in
         ;;
 
     purge)
-        sudo /var/jb/usr/bin/purge >/dev/null 2>&1
+        purge_inactive_memory
         echo "RAM_PURGED"
         ;;
 
     stremio_status)
-        STREAM_COUNT=$(/var/jb/usr/sbin/netstat -an 2>/dev/null | awk '/11470/ && /ESTABLISHED/ {count++} END {print count+0}')
+        STREAM_COUNT=$(netstat -an 2>/dev/null | awk '/11470/ && /ESTABLISHED/ {count++} END {print count+0}')
         echo "STREMIO_STREAMS:$STREAM_COUNT"
         ;;
 
@@ -358,7 +384,7 @@ case "$ACTION" in
             status)
                 UNLOADED=0
                 for d in "${BATTERY_HOG_DAEMONS[@]}"; do
-                    if ! /var/jb/usr/bin/launchctl list 2>/dev/null | grep -q "$d"; then
+                    if ! launchctl list 2>/dev/null | grep -q "$d"; then
                         UNLOADED=$((UNLOADED + 1))
                     fi
                 done
@@ -415,7 +441,11 @@ EOF
         export SHIELD_MODE_ENV="$RUN_MODE"
         export ROUTER_IP_ENV="$ROUTER_IP"
         export ROUTER_MAC_ENV="$ROUTER_MAC"
-        /var/jb/usr/bin/python3 - <<'PY_CLI_END'
+        
+        PYTHON_EXEC="${JB}/usr/bin/python3"
+        [ ! -x "$PYTHON_EXEC" ] && PYTHON_EXEC="python3"
+        
+        "$PYTHON_EXEC" - <<'PY_CLI_END'
 import os, sys, time, subprocess
 
 mode = os.environ.get("SHIELD_MODE_ENV", "streaming")
@@ -441,7 +471,7 @@ mode_tag = "\033[1;32m🎮 GAMING (TSO:Off)\033[0m" if mode == "gaming" else "\0
 
 def get_bytes(iface="en0"):
     try:
-        out = subprocess.check_output(['/var/jb/usr/sbin/netstat', '-ib', '-I', iface], stderr=subprocess.DEVNULL).decode()
+        out = subprocess.check_output(['netstat', '-ib', '-I', iface], stderr=subprocess.DEVNULL).decode()
         for line in out.strip().splitlines()[1:]:
             p = line.split()
             if len(p) >= 10 and (p[0] == iface or p[0] == f"<{iface}>" or p[0].startswith(iface)):
@@ -462,7 +492,7 @@ def get_battery():
 
 def ping(host, t=350):
     try:
-        out = subprocess.check_output(['/var/jb/bin/ping', '-c', '1', '-W', str(t), host], stderr=subprocess.DEVNULL).decode()
+        out = subprocess.check_output(['ping', '-c', '1', '-W', str(t), host], stderr=subprocess.DEVNULL).decode()
         for l in out.splitlines():
             if 'time=' in l:
                 return float(l.split('time=')[1].split()[0])
@@ -483,7 +513,7 @@ def col_ping(ms):
 
 def check_stremio_clients():
     try:
-        out = subprocess.check_output(['/var/jb/usr/sbin/netstat', '-an'], stderr=subprocess.DEVNULL).decode()
+        out = subprocess.check_output(['netstat', '-an'], stderr=subprocess.DEVNULL).decode()
         return sum(1 for l in out.splitlines() if '11470' in l and 'ESTABLISHED' in l)
     except:
         return 0
@@ -506,7 +536,7 @@ def find_active_apps():
 def check_and_relock_arp(router_ip, auth_mac):
     if not auth_mac or auth_mac == "auto": return True
     try:
-        out = subprocess.check_output(['/var/jb/usr/sbin/arp', '-n', router_ip], stderr=subprocess.DEVNULL).decode()
+        out = subprocess.check_output(['arp', '-n', router_ip], stderr=subprocess.DEVNULL).decode()
         cur_mac = ""
         parts = out.split()
         if 'at' in parts:
@@ -529,7 +559,7 @@ r_ms, i_ms = None, None
 bat_str = get_battery()
 spoof_blocks = 0
 
-print(f"\n{C_CYAN}🛡️   Anti-Lag Shield Pro v3.6 (Universal Network Sentinel)   🛡️{C_RESET}")
+print(f"\n{C_CYAN}🛡️   Anti-Lag Shield Pro v3.7 (Universal Network Sentinel)   🛡️{C_RESET}")
 print(f"{C_GREEN}[✔] Auto-Detected Gateway: {router_ip} ({router_mac}) [Permanently Locked]{C_RESET}")
 print(f"{C_GREEN}[✔] Bandwidth Thief Shield & Battery Saver: ACTIVE{C_RESET}\n")
 
@@ -585,6 +615,7 @@ PY_CLI_END
             enable)
                 D_MODE="${3:-streaming}"
                 echo "ACTIVE:$D_MODE:DAEMON" > "$STATE_FILE"
+                mkdir -p "$(dirname "$DAEMON_PLIST")"
                 cat <<EOF | sudo tee "$DAEMON_PLIST" >/dev/null
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -594,8 +625,8 @@ PY_CLI_END
 	<string>com.jordan.antilagshield</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>/var/jb/usr/bin/bash</string>
-		<string>/var/jb/usr/bin/shield_ctl</string>
+		<string>$BASH_EXEC</string>
+		<string>$SHIELD_EXEC</string>
 		<string>start_daemon</string>
 		<string>$D_MODE</string>
 	</array>
@@ -613,16 +644,16 @@ PY_CLI_END
 </plist>
 EOF
                 sudo chmod 644 "$DAEMON_PLIST"
-                sudo /var/jb/usr/bin/launchctl load -w "$DAEMON_PLIST" >/dev/null 2>&1
+                sudo launchctl load -w "$DAEMON_PLIST" >/dev/null 2>&1
                 echo "DAEMON_ENABLED:$D_MODE"
                 ;;
 
             disable)
                 if [ -f "$DAEMON_PLIST" ]; then
-                    sudo /var/jb/usr/bin/launchctl unload -w "$DAEMON_PLIST" >/dev/null 2>&1
+                    sudo launchctl unload -w "$DAEMON_PLIST" >/dev/null 2>&1
                     sudo rm -f "$DAEMON_PLIST"
                 fi
-                /var/jb/usr/bin/shield_ctl stop >/dev/null 2>&1
+                "$SHIELD_EXEC" stop >/dev/null 2>&1
                 echo "DAEMON_DISABLED"
                 ;;
 
@@ -645,7 +676,7 @@ EOF
                 if kill -0 "$SAVED_PID" 2>/dev/null; then
                     cat "$STATE_FILE"
                 else
-                    /var/jb/usr/bin/shield_ctl stop >/dev/null 2>&1
+                    "$SHIELD_EXEC" stop >/dev/null 2>&1
                     echo "INACTIVE"
                 fi
             else
