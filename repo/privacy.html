@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Privacy Policy — Anti-Lag Shield Pro</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #0b0e14;
+            color: #ffffff;
+            margin: 0;
+            padding: 32px 20px;
+            display: flex;
+            justify-content: center;
+        }
+        .container {
+            max-width: 720px;
+            width: 100%;
+            line-height: 1.6;
+        }
+        h1 { color: #00d2f5; font-size: 28px; margin-bottom: 8px; }
+        h2 { color: #30d158; font-size: 20px; margin-top: 28px; border-bottom: 1px solid #222d3d; padding-bottom: 8px; }
+        p, li { color: #c5cedd; font-size: 15px; }
+        ul { padding-left: 20px; }
+        .meta { color: #8e8e93; font-size: 14px; margin-bottom: 24px; }
+        .card { background: #141a24; border: 1px solid #222d3d; border-radius: 12px; padding: 18px; margin: 16px 0; }
+        a { color: #00d2f5; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Privacy Policy</h1>
+        <div class="meta">Anti-Lag Shield Pro • Last Updated: November 1, 2026 • Developer: NightKnight24</div>
+
+        <div class="card">
+            <strong>Summary:</strong> Anti-Lag Shield Pro is 100% on-device software. We collect <strong>zero personal data, zero analytics, zero telemetry, and zero browsing activity</strong>.
+        </div>
+
+        <h2>1. Zero Data Collection Architecture</h2>
+        <p>Anti-Lag Shield Pro operates with root/elevated system privileges on iOS and iPadOS. We adhere to a strict zero-telemetry policy: no personal data is collected, monitored, or transmitted under any circumstances.</p>
+
+        <h2>2. Local On-Device Processing</h2>
+        <ul>
+            <li><strong>Network Gateway Locking:</strong> Discovered router IP and MAC addresses are stored exclusively in local files (<code>/var/jb/etc/antilag_gateway.conf</code>) to bind Darwin's kernel ARP cache against LAN spoofing. No network identifiers are ever sent off your device.</li>
+            <li><strong>Latency Telemetry:</strong> Ping latency tests to <code>1.1.1.1</code> and your gateway measure round-trip packet response times locally on demand.</li>
+            <li><strong>Flash Storage Cleaner:</strong> Purges stale crash dumps (<code>.ips</code>) and WebKit temp files directly on local NAND flash. No files or personal documents are accessed or uploaded.</li>
+            <li><strong>Turbo UI:</strong> Adjusts Darwin accessibility preferences locally to bypass GPU blur shaders.</li>
+        </ul>
+
+        <h2>3. Third-Party Services & Trackers</h2>
+        <p>This software contains no advertising SDKs, no analytic trackers (such as Google Analytics or Firebase), and no cookies.</p>
+
+        <h2>4. Open Source Auditing</h2>
+        <p>Anti-Lag Shield Pro is open-source. All code and scripts may be audited on GitHub at: <a href="https://github.com/NightKnight24/AntiLagShield" target="_blank">github.com/NightKnight24/AntiLagShield</a>.</p>
+
+        <h2>5. Contact</h2>
+        <p>For questions or security concerns, visit the project repository issues page: <a href="https://github.com/NightKnight24/AntiLagShield/issues" target="_blank">github.com/NightKnight24/AntiLagShield/issues</a>.</p>
+    </div>
+</body>
+</html>
