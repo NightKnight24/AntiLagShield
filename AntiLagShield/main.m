@@ -57,6 +57,9 @@ static NSUInteger get_free_memory_mb(void) {
 @property (nonatomic, strong) UILabel *tsoLabel;
 @property (nonatomic, strong) UILabel *bufferLabel;
 @property (nonatomic, strong) NSTimer *telemetryTimer;
+@property (nonatomic, strong) NSString *githubURL;
+@property (nonatomic, strong) UILabel *githubNameLabel;
+@property (nonatomic, strong) UILabel *githubSubLabel;
 @end
 
 @implementation ShieldViewController
@@ -87,7 +90,7 @@ static NSUInteger get_free_memory_mb(void) {
     
     // Title
     UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(startX, y, contentW, 30)];
-    titleLabel.text = @"Anti-Lag Shield Pro v3.6";
+    titleLabel.text = @"Anti-Lag Shield Pro v3.7";
     titleLabel.font = [UIFont boldSystemFontOfSize:24];
     titleLabel.textColor = [UIColor whiteColor];
     titleLabel.textAlignment = NSTextAlignmentCenter;
@@ -313,6 +316,68 @@ static NSUInteger get_free_memory_mb(void) {
     [daemonCard addSubview:self.daemonSwitch];
     y += 97;
     
+    // CARD 5: Developer & Open-Source Projects (GitHub)
+    UIView *gitCard = [[UIView alloc] initWithFrame:CGRectMake(startX, y, contentW, 114)];
+    gitCard.backgroundColor = [UIColor colorWithRed:0.08 green:0.10 blue:0.14 alpha:0.95];
+    gitCard.layer.cornerRadius = 16;
+    gitCard.layer.borderWidth = 1.0;
+    gitCard.layer.borderColor = [UIColor colorWithRed:0.15 green:0.20 blue:0.28 alpha:1.0].CGColor;
+    [self.scrollView addSubview:gitCard];
+    
+    UILabel *gitTitle = [[UILabel alloc] initWithFrame:CGRectMake(16, 12, contentW - 32, 16)];
+    gitTitle.text = @"👨‍💻 DEVELOPER PROJECTS & OPEN-SOURCE";
+    gitTitle.font = [UIFont systemFontOfSize:11 weight:UIFontWeightBold];
+    gitTitle.textColor = [UIColor colorWithWhite:0.55 alpha:1.0];
+    [gitCard addSubview:gitTitle];
+    
+    UIButton *gitButton = [UIButton buttonWithType:UIButtonTypeCustom];
+    gitButton.frame = CGRectMake(12, 34, contentW - 24, 66);
+    gitButton.backgroundColor = [UIColor colorWithRed:0.12 green:0.15 blue:0.22 alpha:0.95];
+    gitButton.layer.cornerRadius = 12;
+    gitButton.layer.borderWidth = 1.0;
+    gitButton.layer.borderColor = [UIColor colorWithRed:0.22 green:0.35 blue:0.52 alpha:0.5].CGColor;
+    [gitButton addTarget:self action:@selector(openGitHubTapped:) forControlEvents:UIControlEventTouchUpInside];
+    [gitCard addSubview:gitButton];
+    
+    UILabel *ghIcon = [[UILabel alloc] initWithFrame:CGRectMake(14, 13, 40, 40)];
+    ghIcon.text = @"🐙";
+    ghIcon.font = [UIFont systemFontOfSize:30];
+    ghIcon.textAlignment = NSTextAlignmentCenter;
+    [gitButton addSubview:ghIcon];
+    
+    self.githubNameLabel = [[UILabel alloc] initWithFrame:CGRectMake(60, 12, contentW - 170, 22)];
+    self.githubNameLabel.text = @"NightKnight24 (GitHub)";
+    self.githubNameLabel.font = [UIFont boldSystemFontOfSize:16];
+    self.githubNameLabel.textColor = [UIColor whiteColor];
+    [gitButton addSubview:self.githubNameLabel];
+    
+    self.githubSubLabel = [[UILabel alloc] initWithFrame:CGRectMake(60, 36, contentW - 170, 18)];
+    self.githubSubLabel.text = @"NightKnight Cinema • Anti-Lag Shield Pro • Open Source";
+    self.githubSubLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightMedium];
+    self.githubSubLabel.textColor = [UIColor colorWithRed:0.0 green:0.82 blue:0.95 alpha:0.9];
+    [gitButton addSubview:self.githubSubLabel];
+    
+    UILabel *arrowLabel = [[UILabel alloc] initWithFrame:CGRectMake(contentW - 24 - 100, 22, 90, 22)];
+    arrowLabel.text = @"Visit Profile ↗";
+    arrowLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightBold];
+    arrowLabel.textColor = [UIColor colorWithRed:0.2 green:0.85 blue:1.0 alpha:1.0];
+    arrowLabel.textAlignment = NSTextAlignmentRight;
+    [gitButton addSubview:arrowLabel];
+    
+    UILongPressGestureRecognizer *ghPress = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(gitButtonLongPressed:)];
+    [gitButton addGestureRecognizer:ghPress];
+    
+    y += 126;
+    
+    // Footer Note
+    UILabel *footerLabel = [[UILabel alloc] initWithFrame:CGRectMake(startX, y, contentW, 20)];
+    footerLabel.text = @"Engineered with ❤️ for the Jailbreak & Gaming Community";
+    footerLabel.font = [UIFont systemFontOfSize:11 weight:UIFontWeightMedium];
+    footerLabel.textColor = [UIColor colorWithWhite:0.4 alpha:1.0];
+    footerLabel.textAlignment = NSTextAlignmentCenter;
+    [self.scrollView addSubview:footerLabel];
+    y += 35;
+    
     self.scrollView.contentSize = CGSizeMake(width, y + 40);
     
     [self checkDaemonStatus];
@@ -389,20 +454,80 @@ static NSUInteger get_free_memory_mb(void) {
     [self presentViewController:alert animated:YES completion:nil];
 }
 
+- (void)openGitHubTapped:(UIButton *)sender {
+    NSString *urlStr = (self.githubURL.length > 0) ? self.githubURL : @"https://github.com/NightKnight24";
+    if (![urlStr hasPrefix:@"http://"] && ![urlStr hasPrefix:@"https://"]) {
+        urlStr = [NSString stringWithFormat:@"https://github.com/%@", urlStr];
+    }
+    NSURL *url = [NSURL URLWithString:urlStr];
+    if (url) {
+        [[UIApplication sharedApplication] openURL:url options:@{} completionHandler:nil];
+    }
+}
+
+- (void)gitButtonLongPressed:(UILongPressGestureRecognizer *)gesture {
+    if (gesture.state != UIGestureRecognizerStateBegan) return;
+    
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"🐙 GitHub Profile URL"
+                                                                   message:@"Set your personal GitHub profile or repo link to showcase your work:"
+                                                            preferredStyle:UIAlertControllerStyleAlert];
+    
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
+        textField.text = (self.githubURL.length > 0) ? self.githubURL : @"https://github.com/NightKnight24";
+        textField.placeholder = @"https://github.com/username";
+        textField.keyboardType = UIKeyboardTypeURL;
+    }];
+    
+    UIAlertAction *saveAction = [UIAlertAction actionWithTitle:@"Save & Open" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
+        NSString *newUrl = alert.textFields[0].text;
+        if (newUrl.length > 0) {
+            self.githubURL = newUrl;
+            if ([newUrl containsString:@"github.com/"]) {
+                NSString *user = [newUrl componentsSeparatedByString:@"github.com/"].lastObject;
+                if (user.length > 0) {
+                    self.githubNameLabel.text = [NSString stringWithFormat:@"%@ (GitHub)", user];
+                }
+            }
+            dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
+                run_cmd([NSString stringWithFormat:@"%@ config set-github '%@'", get_shield_ctl_path(), newUrl]);
+            });
+            [self openGitHubTapped:nil];
+        }
+    }];
+    
+    UIAlertAction *cancelAction = [UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil];
+    
+    [alert addAction:saveAction];
+    [alert addAction:cancelAction];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
 - (void)updateGatewayLabel {
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         run_cmd([NSString stringWithFormat:@"%@ config show > /tmp/gw_cfg.txt 2>/dev/null", get_shield_ctl_path()]);
         NSString *cfg = [NSString stringWithContentsOfFile:@"/tmp/gw_cfg.txt" encoding:NSUTF8StringEncoding error:nil];
         NSString *ip = @"";
         NSString *mac = @"";
+        NSString *gh = @"";
         for (NSString *line in [cfg componentsSeparatedByString:@"\n"]) {
             if ([line hasPrefix:@"ROUTER_IP="]) {
                 ip = [line substringFromIndex:10];
             } else if ([line hasPrefix:@"ROUTER_MAC="]) {
                 mac = [line substringFromIndex:11];
+            } else if ([line hasPrefix:@"GITHUB_URL="]) {
+                gh = [line substringFromIndex:11];
             }
         }
         dispatch_async(dispatch_get_main_queue(), ^{
+            if (gh.length > 0) {
+                self.githubURL = gh;
+                if ([gh containsString:@"github.com/"]) {
+                    NSString *user = [gh componentsSeparatedByString:@"github.com/"].lastObject;
+                    if (user.length > 0) {
+                        self.githubNameLabel.text = [NSString stringWithFormat:@"%@ (GitHub)", user];
+                    }
+                }
+            }
             if (ip.length > 0 && mac.length > 0) {
                 self.gatewayLabel.text = [NSString stringWithFormat:@"Locked: %@ (%@)", ip, mac];
             } else {

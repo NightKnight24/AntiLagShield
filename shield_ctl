@@ -38,8 +38,11 @@ GATEWAY_IP=auto
 GATEWAY_MAC=auto
 BANDWIDTH_SENTINEL=enabled
 BATTERY_SAVER=enabled
+GITHUB_URL=https://github.com/NightKnight24
 EOF
         chmod 644 "$CONF_FILE" 2>/dev/null
+    elif ! grep -q "^GITHUB_URL=" "$CONF_FILE" 2>/dev/null; then
+        echo "GITHUB_URL=https://github.com/NightKnight24" >> "$CONF_FILE"
     fi
 }
 
@@ -402,34 +405,54 @@ case "$ACTION" in
                 NEW_MAC="$4"
                 if [ -n "$NEW_IP" ] && [ -n "$NEW_MAC" ]; then
                     NORM_M=$(norm_mac "$NEW_MAC")
+                    CUR_GH=$(grep "^GITHUB_URL=" "$CONF_FILE" 2>/dev/null | cut -d= -f2- | tr -d '[:space:]')
+                    [ -z "$CUR_GH" ] && CUR_GH="https://github.com/NightKnight24"
                     cat <<EOF > "$CONF_FILE"
 GATEWAY_IP=$NEW_IP
 GATEWAY_MAC=$NORM_M
 BANDWIDTH_SENTINEL=enabled
 BATTERY_SAVER=enabled
+GITHUB_URL=$CUR_GH
 EOF
                     echo "CONFIG_SAVED:IP=$NEW_IP:MAC=$NORM_M"
                 else
                     echo "Usage: $0 config set <gateway_ip> <gateway_mac>"
                 fi
                 ;;
+            set-github)
+                NEW_GH="$3"
+                if [ -n "$NEW_GH" ]; then
+                    init_config
+                    grep -v "^GITHUB_URL=" "$CONF_FILE" > "${CONF_FILE}.tmp" 2>/dev/null && mv "${CONF_FILE}.tmp" "$CONF_FILE"
+                    echo "GITHUB_URL=$NEW_GH" >> "$CONF_FILE"
+                    echo "CONFIG_SAVED:GITHUB_URL=$NEW_GH"
+                else
+                    echo "Usage: $0 config set-github <url>"
+                fi
+                ;;
             auto)
+                CUR_GH=$(grep "^GITHUB_URL=" "$CONF_FILE" 2>/dev/null | cut -d= -f2- | tr -d '[:space:]')
+                [ -z "$CUR_GH" ] && CUR_GH="https://github.com/NightKnight24"
                 cat <<EOF > "$CONF_FILE"
 GATEWAY_IP=auto
 GATEWAY_MAC=auto
 BANDWIDTH_SENTINEL=enabled
 BATTERY_SAVER=enabled
+GITHUB_URL=$CUR_GH
 EOF
                 resolve_gateway
                 echo "CONFIG_AUTO_RESET:IP=$ROUTER_IP:MAC=$ROUTER_MAC"
                 ;;
             get|show|*)
+                init_config
                 CFG_IP=$(grep "^GATEWAY_IP=" "$CONF_FILE" 2>/dev/null | cut -d= -f2 | tr -d '[:space:]')
                 CFG_MAC=$(grep "^GATEWAY_MAC=" "$CONF_FILE" 2>/dev/null | cut -d= -f2 | tr -d '[:space:]')
+                CFG_GH=$(grep "^GITHUB_URL=" "$CONF_FILE" 2>/dev/null | cut -d= -f2- | tr -d '[:space:]')
                 echo "MODE=${CFG_IP:-auto}"
                 echo "ROUTER_IP=$ROUTER_IP"
                 echo "ROUTER_MAC=$ROUTER_MAC"
                 echo "BANDWIDTH_SENTINEL=active"
+                echo "GITHUB_URL=${CFG_GH:-https://github.com/NightKnight24}"
                 ;;
         esac
         ;;

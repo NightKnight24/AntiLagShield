@@ -50,9 +50,14 @@ Anti-Lag Shield Pro works on any home, school, office, or travel Wi-Fi network (
 5. **Battery Saver & Telemetry Defense:**
    * Unloads 9 heavy Apple background telemetry, analytics, experimentation, and inference daemons (`tipsd`, `tailspind`, `spindump`, `triald`, `adprivacyd`, `parsec-fbf`, `siriinferenced`, `duetexpertd`, `coreduetd`).
    * Enables Darwin CPU timer coalescing (`kern.timer.coalescing_enabled=1`) so the SoC stays in deep C-state sleep longer.
-6. **Retina Display Dynamic Buffers (Non-4K):**
+   * Throttles disk-heavy indexing daemons (`corespotlightd`, `knowledgeconstructiond`, `deleted`, `cloudphotod`) to low priority (`nice 15`).
+   * Prevents Apple's thermal and voltage CPU throttling ("battery-gate") by keeping the SoC cool and preventing current spikes.
+6. **Developer Showcase & GitHub Integration:**
+   * In-app interactive card with direct 1-tap Safari launch to developer profile: [https://github.com/NightKnight24](https://github.com/NightKnight24).
+   * Long-press to customize profile URL or configure via CLI (`shield_ctl config set-github <url>`).
+7. **Retina Display Dynamic Buffers (Non-4K):**
    * Specifically tuned for Retina/HD displays: tight 6 MB dynamic TCP window (`autorcvbufmax=6291456`, `recvspace=4194304`, `somaxconn=512`), eliminating memory waste while delivering stutter-free 1080p 60fps streaming.
-7. **TSO Anti-Bufferbloat Control:**
+8. **TSO Anti-Bufferbloat Control:**
    * **Gaming Mode (`tso=0`):** Disables TCP segmentation offloading on the Darwin kernel to eliminate packet queuing jitter and micro-stutters.
    * **Streaming Mode (`tso=1`):** Enables hardware TSO offload for maximum burst throughput.
 
@@ -74,6 +79,9 @@ ssh ipad "shield_ctl config auto"
 
 # Set a custom Gateway IP and MAC override
 ssh ipad "shield_ctl config set 192.168.1.1 00:11:22:33:44:55"
+
+# Set or update developer GitHub profile URL
+ssh ipad "shield_ctl config set-github 'https://github.com/NightKnight24'"
 
 # Check battery saver status (shows daemons unloaded)
 ssh ipad "shield_ctl battery status"
