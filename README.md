@@ -26,7 +26,27 @@ In addition to network packet optimization, v3.8 introduces a dedicated **Device
 
 ---
 
-## 📱 Universal Device Compatibility (iOS 12.0 – 18.x)
+## 📦 How to Install (For Any User)
+
+Anti-Lag Shield Pro is pre-packaged and ready for any user to install across all 64-bit iOS & iPadOS devices:
+
+### Option 1: Sileo / Zebra / Cydia (Standard `.deb` Package)
+1. Download **[`dist/AntiLagShield_v3.8_rootless.deb`](dist/AntiLagShield_v3.8_rootless.deb)** (for Dopamine, palera1n rootless, Sileo, Zebra) or **[`dist/AntiLagShield_v3.8_rootful.deb`](dist/AntiLagShield_v3.8_rootful.deb)** (for checkra1n, unc0ver, Cydia).
+2. Tap **Share** → **Open in Sileo** (or Zebra) and tap **Install**.
+3. The app icon will appear directly on your Home Screen.
+
+### Option 2: TrollStore 1-Tap Install (`.tipa`)
+1. Download **[`dist/AntiLagShield_v3.8.tipa`](dist/AntiLagShield_v3.8.tipa)**.
+2. Tap **Share** → **Open in TrollStore**.
+3. Installs with persistent root capabilities without needing a full jailbreak!
+
+### Option 3: One-Line Terminal Installer (SSH / NewTerm)
+Run this single command directly in terminal on any jailbroken iPhone or iPad:
+```bash
+curl -sL https://raw.githubusercontent.com/NightKnight24/AntiLagShield/main/install.sh | bash
+```
+
+---
 
 The Mach-O binary is compiled with `minos 12.0` (`LC_BUILD_VERSION`) and `UIDeviceFamily` 1 (iPhone) & 2 (iPad), enabling compatibility across 11+ years of Apple devices:
 
