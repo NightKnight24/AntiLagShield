@@ -42,6 +42,7 @@ Maintainer: NightKnight <nightknight24@users.noreply.github.com>
 Author: NightKnight24
 Section: Utilities
 Depends: bash, sudo
+Icon: https://nightknight24.github.io/repo/icon.png
 EOF
 
     cat <<'EOF' > "$ROOTLESS_DIR/DEBIAN/postinst"
@@ -90,6 +91,7 @@ Maintainer: NightKnight <nightknight24@users.noreply.github.com>
 Author: NightKnight24
 Section: Utilities
 Depends: bash, sudo
+Icon: https://nightknight24.github.io/repo/icon.png
 EOF
 
     cat <<'EOF' > "$ROOTFUL_DIR/DEBIAN/postinst"
