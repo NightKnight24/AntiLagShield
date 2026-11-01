@@ -355,7 +355,7 @@ def render_scene_5(frame_idx, total_frames):
     # Gateway Lock Box
     draw_rounded_rect(draw, [left_x + 30, card_top + 65, left_x + col_w - 30, card_top + 145], 12, fill=(13, 17, 26), outline=CARD_BORDER, width=1)
     draw.text((left_x + 45, card_top + 80), "GATEWAY LOCK:", font=font_small, fill=GRAY)
-    draw.text((left_x + 190, card_top + 80), "192.168.0.1 (b0:1f:f4:01:5c:60) [LOCKED]", font=font_mono_small, fill=GREEN)
+    draw.text((left_x + 190, card_top + 80), "192.168.1.1 (00:11:22:33:44:55) [LOCKED]", font=font_mono_small, fill=GREEN)
     draw.text((left_x + 45, card_top + 110), "Status: Auto-Detected on Wi-Fi • Rogue ARP Poisoning Guarded", font=font_small, fill=CYAN)
     
     # Gaming vs Streaming comparison

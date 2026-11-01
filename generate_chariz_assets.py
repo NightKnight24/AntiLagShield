@@ -239,7 +239,7 @@ def create_screenshot_1():
     draw.text((90, 1155), "ACTIVE KERNEL DEFENSES & SENTINELS", font=font_h3, fill=WHITE)
     
     def_items = [
-        ("Zero-Trust Gateway Lock", "192.168.0.1 (b0:1f:f4:01:5c:60) [LOCKED IN KERNEL]", GREEN),
+        ("Zero-Trust Gateway Lock", "192.168.1.1 (00:11:22:33:44:55) [LOCKED IN KERNEL]", GREEN),
         ("Universal Anti-Spoof Sentinel", "Rogue ARP Hijacks & Poisoning Intercepted", CYAN),
         ("Bandwidth Thief Sentinel", "nsurlsessiond, appstored throttled to priority nice 10", WHITE),
         ("Battery & Telemetry Shield", "12 Apple AI/Vision Daemons Halted (Deep Sleep Restored)", GREEN),
@@ -407,7 +407,7 @@ def create_screenshot_4():
     
     draw_rounded_rect(draw, [90, 290, w - 90, 390], 14, fill=(13, 17, 26), outline=CARD_BORDER, width=1)
     draw.text((115, 305), "GATEWAY IDENTIFIER:", font=font_small, fill=GRAY)
-    draw.text((115, 335), "192.168.0.1 (b0:1f:f4:01:5c:60) [LOCKED IN KERNEL]", font=font_mono, fill=GREEN)
+    draw.text((115, 335), "192.168.1.1 (00:11:22:33:44:55) [LOCKED IN KERNEL]", font=font_mono, fill=GREEN)
     
     # Gaming vs Streaming cards
     sub_w = (w - 210) // 2
