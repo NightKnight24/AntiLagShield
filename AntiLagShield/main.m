@@ -60,36 +60,86 @@ static NSUInteger get_free_memory_mb(void) {
     mach_msg_type_number_t host_size = sizeof(vm_statistics_data_t) / sizeof(integer_t);
     vm_size_t pagesize;
     vm_statistics_data_t vm_stat;
+    
     host_page_size(host_port, &pagesize);
     if (host_statistics(host_port, HOST_VM_INFO, (host_info_t)&vm_stat, &host_size) != KERN_SUCCESS) {
         return 0;
     }
-    unsigned long long free_bytes = ((unsigned long long)vm_stat.free_count + (unsigned long long)vm_stat.speculative_count) * pagesize;
-    return (NSUInteger)(free_bytes / (1024 * 1024));
+    
+    natural_t mem_free = vm_stat.free_count * (natural_t)pagesize;
+    return mem_free / (1024 * 1024);
 }
 
 @interface ShieldViewController : UIViewController
+
 @property (nonatomic, strong) UIScrollView *scrollView;
+
+// Header Views
+@property (nonatomic, strong) UILabel *iconLabel;
+@property (nonatomic, strong) UILabel *titleLabel;
+@property (nonatomic, strong) UILabel *subLabel;
 @property (nonatomic, strong) UILabel *statusBadge;
 @property (nonatomic, strong) UISegmentedControl *modeControl;
+
+// Card 1: Telemetry & RAM
+@property (nonatomic, strong) UIView *telemetryCard;
+@property (nonatomic, strong) UILabel *rTitle;
 @property (nonatomic, strong) UILabel *routerPingLabel;
+@property (nonatomic, strong) UILabel *iTitle;
 @property (nonatomic, strong) UILabel *internetPingLabel;
+@property (nonatomic, strong) UILabel *bTitle;
 @property (nonatomic, strong) UILabel *batteryLabel;
+@property (nonatomic, strong) UILabel *mTitle;
 @property (nonatomic, strong) UILabel *ramLabel;
 @property (nonatomic, strong) UIButton *purgeButton;
-@property (nonatomic, strong) UISwitch *turboSwitch;
+
+// Card 2: Device Revival & Hardware Acceleration
+@property (nonatomic, strong) UIView *revivalCard;
+@property (nonatomic, strong) UILabel *revivalTitle;
+@property (nonatomic, strong) UILabel *turboTitle;
 @property (nonatomic, strong) UILabel *turboStatusLabel;
+@property (nonatomic, strong) UISwitch *turboSwitch;
 @property (nonatomic, strong) UIButton *cleanStorageButton;
+@property (nonatomic, strong) UIView *jetsamRow;
+@property (nonatomic, strong) UILabel *jIcon;
 @property (nonatomic, strong) UILabel *jetsamStatusLabel;
-@property (nonatomic, strong) UISwitch *daemonSwitch;
-@property (nonatomic, strong) UILabel *daemonStatusLabel;
+
+// Card 3: Defenses
+@property (nonatomic, strong) UIView *defCard;
+@property (nonatomic, strong) UIButton *cfgBtn;
+@property (nonatomic, strong) NSMutableArray<UILabel *> *defTLabels;
+@property (nonatomic, strong) NSMutableArray<UILabel *> *defVLabels;
 @property (nonatomic, strong) UILabel *gatewayLabel;
 @property (nonatomic, strong) UILabel *tsoLabel;
 @property (nonatomic, strong) UILabel *bufferLabel;
-@property (nonatomic, strong) NSTimer *telemetryTimer;
-@property (nonatomic, strong) NSString *githubURL;
+
+// Card 4: VIP Apps & Gamepads
+@property (nonatomic, strong) UIView *vipCard;
+@property (nonatomic, strong) UILabel *vipTitle;
+@property (nonatomic, strong) UILabel *vipList;
+@property (nonatomic, strong) UILabel *vipSub;
+
+// Card 5: Daemon
+@property (nonatomic, strong) UIView *daemonCard;
+@property (nonatomic, strong) UILabel *dTitle;
+@property (nonatomic, strong) UILabel *daemonStatusLabel;
+@property (nonatomic, strong) UISwitch *daemonSwitch;
+
+// Card 6: GitHub & Developer
+@property (nonatomic, strong) UIView *gitCard;
+@property (nonatomic, strong) UILabel *gitTitle;
+@property (nonatomic, strong) UIButton *gitButton;
+@property (nonatomic, strong) UILabel *ghIcon;
 @property (nonatomic, strong) UILabel *githubNameLabel;
 @property (nonatomic, strong) UILabel *githubSubLabel;
+@property (nonatomic, strong) UILabel *arrowLabel;
+@property (nonatomic, strong) NSString *githubURL;
+
+// Footer
+@property (nonatomic, strong) UILabel *footerLabel;
+
+@property (nonatomic, strong) NSTimer *telemetryTimer;
+
 @end
 
 @implementation ShieldViewController
@@ -99,45 +149,40 @@ static NSUInteger get_free_memory_mb(void) {
     self.view.backgroundColor = [UIColor colorWithRed:0.04 green:0.05 blue:0.08 alpha:1.0];
     
     [UIDevice currentDevice].batteryMonitoringEnabled = YES;
+    self.githubURL = @"https://github.com/NightKnight24";
     
+    // Scroll View
     self.scrollView = [[UIScrollView alloc] initWithFrame:self.view.bounds];
     self.scrollView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     self.scrollView.alwaysBounceVertical = YES;
     [self.view addSubview:self.scrollView];
     
-    CGFloat width = self.view.bounds.size.width;
-    CGFloat contentW = MIN(width - 40, 680);
-    CGFloat startX = (width - contentW) / 2;
-    CGFloat y = 40;
+    // Header
+    self.iconLabel = [[UILabel alloc] init];
+    self.iconLabel.text = @"🛡️";
+    self.iconLabel.font = [UIFont systemFontOfSize:46];
+    self.iconLabel.textAlignment = NSTextAlignmentCenter;
+    [self.scrollView addSubview:self.iconLabel];
     
-    // Header Icon
-    UILabel *iconLabel = [[UILabel alloc] initWithFrame:CGRectMake(startX, y, contentW, 50)];
-    iconLabel.text = @"🛡️";
-    iconLabel.font = [UIFont systemFontOfSize:46];
-    iconLabel.textAlignment = NSTextAlignmentCenter;
-    [self.scrollView addSubview:iconLabel];
-    y += 54;
-    
-    // Title
-    UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(startX, y, contentW, 30)];
-    titleLabel.text = @"Anti-Lag Shield Pro v3.8";
-    titleLabel.font = [UIFont boldSystemFontOfSize:24];
-    titleLabel.textColor = [UIColor whiteColor];
-    titleLabel.textAlignment = NSTextAlignmentCenter;
-    [self.scrollView addSubview:titleLabel];
-    y += 32;
+    self.titleLabel = [[UILabel alloc] init];
+    self.titleLabel.text = @"Anti-Lag Shield Pro v3.8";
+    self.titleLabel.font = [UIFont boldSystemFontOfSize:24];
+    self.titleLabel.textColor = [UIColor whiteColor];
+    self.titleLabel.textAlignment = NSTextAlignmentCenter;
+    self.titleLabel.adjustsFontSizeToFitWidth = YES;
+    self.titleLabel.minimumScaleFactor = 0.75;
+    [self.scrollView addSubview:self.titleLabel];
 
-    // Subtitle
-    UILabel *subLabel = [[UILabel alloc] initWithFrame:CGRectMake(startX, y, contentW, 20)];
-    subLabel.text = @"Device Revival • Universal Gateway Sentinel • Battery Saver";
-    subLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
-    subLabel.textColor = [UIColor colorWithRed:0.0 green:0.82 blue:0.95 alpha:0.9];
-    subLabel.textAlignment = NSTextAlignmentCenter;
-    [self.scrollView addSubview:subLabel];
-    y += 30;
+    self.subLabel = [[UILabel alloc] init];
+    self.subLabel.text = @"Device Revival • Universal Gateway Sentinel • Battery Saver";
+    self.subLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
+    self.subLabel.textColor = [UIColor colorWithRed:0.0 green:0.82 blue:0.95 alpha:0.9];
+    self.subLabel.textAlignment = NSTextAlignmentCenter;
+    self.subLabel.adjustsFontSizeToFitWidth = YES;
+    self.subLabel.minimumScaleFactor = 0.70;
+    [self.scrollView addSubview:self.subLabel];
     
-    // Status Badge
-    self.statusBadge = [[UILabel alloc] initWithFrame:CGRectMake(startX + (contentW - 270) / 2, y, 270, 32)];
+    self.statusBadge = [[UILabel alloc] init];
     self.statusBadge.text = @"●  SENTINEL ACTIVE";
     self.statusBadge.font = [UIFont boldSystemFontOfSize:13];
     self.statusBadge.textColor = [UIColor colorWithRed:0.2 green:0.95 blue:0.4 alpha:1.0];
@@ -145,181 +190,196 @@ static NSUInteger get_free_memory_mb(void) {
     self.statusBadge.layer.cornerRadius = 16;
     self.statusBadge.clipsToBounds = YES;
     self.statusBadge.textAlignment = NSTextAlignmentCenter;
+    self.statusBadge.adjustsFontSizeToFitWidth = YES;
+    self.statusBadge.minimumScaleFactor = 0.8;
     [self.scrollView addSubview:self.statusBadge];
-    y += 44;
     
-    // Mode Switcher
     NSArray *items = @[@"🎬 Streaming & Web VIP", @"🎮 Ultra-Low Latency"];
     self.modeControl = [[UISegmentedControl alloc] initWithItems:items];
-    self.modeControl.frame = CGRectMake(startX, y, contentW, 40);
     self.modeControl.selectedSegmentIndex = 0;
     [self.modeControl addTarget:self action:@selector(modeChanged:) forControlEvents:UIControlEventValueChanged];
     [self.scrollView addSubview:self.modeControl];
-    y += 52;
     
-    // CARD 1: Live Telemetry & RAM Booster (4 Columns: Gateway | Ping | Battery | RAM)
-    UIView *telemetryCard = [[UIView alloc] initWithFrame:CGRectMake(startX, y, contentW, 140)];
-    telemetryCard.backgroundColor = [UIColor colorWithRed:0.08 green:0.10 blue:0.14 alpha:0.95];
-    telemetryCard.layer.cornerRadius = 16;
-    telemetryCard.layer.borderWidth = 1.0;
-    telemetryCard.layer.borderColor = [UIColor colorWithRed:0.15 green:0.20 blue:0.28 alpha:1.0].CGColor;
-    [self.scrollView addSubview:telemetryCard];
+    // CARD 1: Telemetry
+    self.telemetryCard = [[UIView alloc] init];
+    self.telemetryCard.backgroundColor = [UIColor colorWithRed:0.08 green:0.10 blue:0.14 alpha:0.95];
+    self.telemetryCard.layer.cornerRadius = 16;
+    self.telemetryCard.layer.borderWidth = 1.0;
+    self.telemetryCard.layer.borderColor = [UIColor colorWithRed:0.15 green:0.20 blue:0.28 alpha:1.0].CGColor;
+    [self.scrollView addSubview:self.telemetryCard];
     
-    CGFloat colW = (contentW - 50) / 4;
-    // Router Ping
-    UILabel *rTitle = [[UILabel alloc] initWithFrame:CGRectMake(12, 14, colW, 18)];
-    rTitle.text = @"GATEWAY";
-    rTitle.font = [UIFont systemFontOfSize:11 weight:UIFontWeightBold];
-    rTitle.textColor = [UIColor colorWithWhite:0.55 alpha:1.0];
-    [telemetryCard addSubview:rTitle];
+    self.rTitle = [[UILabel alloc] init];
+    self.rTitle.text = @"GATEWAY";
+    self.rTitle.font = [UIFont systemFontOfSize:11 weight:UIFontWeightBold];
+    self.rTitle.textColor = [UIColor colorWithWhite:0.55 alpha:1.0];
+    self.rTitle.adjustsFontSizeToFitWidth = YES;
+    self.rTitle.minimumScaleFactor = 0.7;
+    [self.telemetryCard addSubview:self.rTitle];
     
-    self.routerPingLabel = [[UILabel alloc] initWithFrame:CGRectMake(12, 34, colW, 26)];
+    self.routerPingLabel = [[UILabel alloc] init];
     self.routerPingLabel.text = @"-- ms";
     self.routerPingLabel.font = [UIFont monospacedDigitSystemFontOfSize:17 weight:UIFontWeightBold];
     self.routerPingLabel.textColor = [UIColor colorWithRed:0.2 green:0.85 blue:1.0 alpha:1.0];
-    [telemetryCard addSubview:self.routerPingLabel];
+    self.routerPingLabel.adjustsFontSizeToFitWidth = YES;
+    self.routerPingLabel.minimumScaleFactor = 0.7;
+    [self.telemetryCard addSubview:self.routerPingLabel];
     
-    // Internet Ping
-    UILabel *iTitle = [[UILabel alloc] initWithFrame:CGRectMake(16 + colW, 14, colW, 18)];
-    iTitle.text = @"INTERNET (1.1)";
-    iTitle.font = [UIFont systemFontOfSize:11 weight:UIFontWeightBold];
-    iTitle.textColor = [UIColor colorWithWhite:0.55 alpha:1.0];
-    [telemetryCard addSubview:iTitle];
+    self.iTitle = [[UILabel alloc] init];
+    self.iTitle.text = @"INTERNET (1.1)";
+    self.iTitle.font = [UIFont systemFontOfSize:11 weight:UIFontWeightBold];
+    self.iTitle.textColor = [UIColor colorWithWhite:0.55 alpha:1.0];
+    self.iTitle.adjustsFontSizeToFitWidth = YES;
+    self.iTitle.minimumScaleFactor = 0.7;
+    [self.telemetryCard addSubview:self.iTitle];
     
-    self.internetPingLabel = [[UILabel alloc] initWithFrame:CGRectMake(16 + colW, 34, colW, 26)];
+    self.internetPingLabel = [[UILabel alloc] init];
     self.internetPingLabel.text = @"-- ms";
     self.internetPingLabel.font = [UIFont monospacedDigitSystemFontOfSize:17 weight:UIFontWeightBold];
     self.internetPingLabel.textColor = [UIColor colorWithRed:0.75 green:0.45 blue:1.0 alpha:1.0];
-    [telemetryCard addSubview:self.internetPingLabel];
+    self.internetPingLabel.adjustsFontSizeToFitWidth = YES;
+    self.internetPingLabel.minimumScaleFactor = 0.7;
+    [self.telemetryCard addSubview:self.internetPingLabel];
 
-    // Battery Status
-    UILabel *bTitle = [[UILabel alloc] initWithFrame:CGRectMake(20 + colW * 2, 14, colW, 18)];
-    bTitle.text = @"BATTERY";
-    bTitle.font = [UIFont systemFontOfSize:11 weight:UIFontWeightBold];
-    bTitle.textColor = [UIColor colorWithWhite:0.55 alpha:1.0];
-    [telemetryCard addSubview:bTitle];
+    self.bTitle = [[UILabel alloc] init];
+    self.bTitle.text = @"BATTERY";
+    self.bTitle.font = [UIFont systemFontOfSize:11 weight:UIFontWeightBold];
+    self.bTitle.textColor = [UIColor colorWithWhite:0.55 alpha:1.0];
+    self.bTitle.adjustsFontSizeToFitWidth = YES;
+    self.bTitle.minimumScaleFactor = 0.7;
+    [self.telemetryCard addSubview:self.bTitle];
     
-    self.batteryLabel = [[UILabel alloc] initWithFrame:CGRectMake(20 + colW * 2, 34, colW, 26)];
+    self.batteryLabel = [[UILabel alloc] init];
     self.batteryLabel.text = @"100%";
     self.batteryLabel.font = [UIFont monospacedDigitSystemFontOfSize:17 weight:UIFontWeightBold];
     self.batteryLabel.textColor = [UIColor colorWithRed:0.3 green:0.95 blue:0.45 alpha:1.0];
-    [telemetryCard addSubview:self.batteryLabel];
+    self.batteryLabel.adjustsFontSizeToFitWidth = YES;
+    self.batteryLabel.minimumScaleFactor = 0.7;
+    [self.telemetryCard addSubview:self.batteryLabel];
     
-    // RAM Status
-    UILabel *mTitle = [[UILabel alloc] initWithFrame:CGRectMake(24 + colW * 3, 14, colW, 18)];
-    mTitle.text = @"FREE RAM";
-    mTitle.font = [UIFont systemFontOfSize:11 weight:UIFontWeightBold];
-    mTitle.textColor = [UIColor colorWithWhite:0.55 alpha:1.0];
-    [telemetryCard addSubview:mTitle];
+    self.mTitle = [[UILabel alloc] init];
+    self.mTitle.text = @"FREE RAM";
+    self.mTitle.font = [UIFont systemFontOfSize:11 weight:UIFontWeightBold];
+    self.mTitle.textColor = [UIColor colorWithWhite:0.55 alpha:1.0];
+    self.mTitle.adjustsFontSizeToFitWidth = YES;
+    self.mTitle.minimumScaleFactor = 0.7;
+    [self.telemetryCard addSubview:self.mTitle];
     
-    self.ramLabel = [[UILabel alloc] initWithFrame:CGRectMake(24 + colW * 3, 34, colW, 26)];
+    self.ramLabel = [[UILabel alloc] init];
     self.ramLabel.text = @"-- MB";
     self.ramLabel.font = [UIFont monospacedDigitSystemFontOfSize:17 weight:UIFontWeightBold];
     self.ramLabel.textColor = [UIColor colorWithRed:0.3 green:0.95 blue:0.55 alpha:1.0];
-    [telemetryCard addSubview:self.ramLabel];
+    self.ramLabel.adjustsFontSizeToFitWidth = YES;
+    self.ramLabel.minimumScaleFactor = 0.7;
+    [self.telemetryCard addSubview:self.ramLabel];
     
-    // Purge RAM Button
     self.purgeButton = [UIButton buttonWithType:UIButtonTypeSystem];
-    self.purgeButton.frame = CGRectMake(12, 76, contentW - 24, 48);
     [self.purgeButton setTitle:@"⚡ Clean Inactive RAM (Purge Cache)" forState:UIControlStateNormal];
     self.purgeButton.titleLabel.font = [UIFont boldSystemFontOfSize:14];
+    self.purgeButton.titleLabel.adjustsFontSizeToFitWidth = YES;
+    self.purgeButton.titleLabel.minimumScaleFactor = 0.8;
     [self.purgeButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
     self.purgeButton.backgroundColor = [UIColor colorWithRed:0.12 green:0.28 blue:0.20 alpha:0.9];
     self.purgeButton.layer.cornerRadius = 12;
     self.purgeButton.layer.borderWidth = 1.0;
     self.purgeButton.layer.borderColor = [UIColor colorWithRed:0.25 green:0.65 blue:0.4 alpha:0.5].CGColor;
     [self.purgeButton addTarget:self action:@selector(purgeRAMTapped:) forControlEvents:UIControlEventTouchUpInside];
-    [telemetryCard addSubview:self.purgeButton];
-    y += 152;
+    [self.telemetryCard addSubview:self.purgeButton];
     
-    // CARD 2: ⚡ Device Revival & System Health (Dedicated Category)
-    UIView *revivalCard = [[UIView alloc] initWithFrame:CGRectMake(startX, y, contentW, 190)];
-    revivalCard.backgroundColor = [UIColor colorWithRed:0.08 green:0.10 blue:0.14 alpha:0.95];
-    revivalCard.layer.cornerRadius = 16;
-    revivalCard.layer.borderWidth = 1.0;
-    revivalCard.layer.borderColor = [UIColor colorWithRed:0.20 green:0.28 blue:0.38 alpha:1.0].CGColor;
-    [self.scrollView addSubview:revivalCard];
+    // CARD 2: Revival
+    self.revivalCard = [[UIView alloc] init];
+    self.revivalCard.backgroundColor = [UIColor colorWithRed:0.08 green:0.10 blue:0.14 alpha:0.95];
+    self.revivalCard.layer.cornerRadius = 16;
+    self.revivalCard.layer.borderWidth = 1.0;
+    self.revivalCard.layer.borderColor = [UIColor colorWithRed:0.20 green:0.28 blue:0.38 alpha:1.0].CGColor;
+    [self.scrollView addSubview:self.revivalCard];
     
-    UILabel *revivalTitle = [[UILabel alloc] initWithFrame:CGRectMake(16, 12, contentW - 32, 16)];
-    revivalTitle.text = @"⚡ DEVICE REVIVAL & HARDWARE ACCELERATION";
-    revivalTitle.font = [UIFont systemFontOfSize:11 weight:UIFontWeightBold];
-    revivalTitle.textColor = [UIColor colorWithRed:0.0 green:0.85 blue:1.0 alpha:1.0];
-    [revivalCard addSubview:revivalTitle];
+    self.revivalTitle = [[UILabel alloc] init];
+    self.revivalTitle.text = @"⚡ DEVICE REVIVAL & HARDWARE ACCELERATION";
+    self.revivalTitle.font = [UIFont systemFontOfSize:11 weight:UIFontWeightBold];
+    self.revivalTitle.textColor = [UIColor colorWithRed:0.0 green:0.85 blue:1.0 alpha:1.0];
+    self.revivalTitle.adjustsFontSizeToFitWidth = YES;
+    self.revivalTitle.minimumScaleFactor = 0.75;
+    [self.revivalCard addSubview:self.revivalTitle];
     
-    // Row 1: Turbo UI Switch
-    UILabel *turboTitle = [[UILabel alloc] initWithFrame:CGRectMake(16, 34, contentW - 80, 20)];
-    turboTitle.text = @"🚀 Turbo UI Mode (0ms Touch & No GPU Blur)";
-    turboTitle.font = [UIFont boldSystemFontOfSize:14];
-    turboTitle.textColor = [UIColor whiteColor];
-    [revivalCard addSubview:turboTitle];
+    self.turboTitle = [[UILabel alloc] init];
+    self.turboTitle.text = @"🚀 Turbo UI Mode (0ms Touch & No GPU Blur)";
+    self.turboTitle.font = [UIFont boldSystemFontOfSize:14];
+    self.turboTitle.textColor = [UIColor whiteColor];
+    self.turboTitle.adjustsFontSizeToFitWidth = YES;
+    self.turboTitle.minimumScaleFactor = 0.75;
+    [self.revivalCard addSubview:self.turboTitle];
     
-    self.turboStatusLabel = [[UILabel alloc] initWithFrame:CGRectMake(16, 54, contentW - 80, 16)];
+    self.turboStatusLabel = [[UILabel alloc] init];
     self.turboStatusLabel.text = @"Off: Default Gaussian blurs & spring animations active.";
     self.turboStatusLabel.font = [UIFont systemFontOfSize:11 weight:UIFontWeightMedium];
     self.turboStatusLabel.textColor = [UIColor colorWithWhite:0.6 alpha:1.0];
-    [revivalCard addSubview:self.turboStatusLabel];
+    self.turboStatusLabel.numberOfLines = 2;
+    self.turboStatusLabel.adjustsFontSizeToFitWidth = YES;
+    self.turboStatusLabel.minimumScaleFactor = 0.75;
+    [self.revivalCard addSubview:self.turboStatusLabel];
     
-    self.turboSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(contentW - 65, 38, 51, 31)];
+    self.turboSwitch = [[UISwitch alloc] init];
     self.turboSwitch.on = get_turbo_ui_status();
     if (self.turboSwitch.on) {
         self.turboStatusLabel.text = @"On: GPU blur shaders bypassed • 0ms instant touch response.";
         self.turboStatusLabel.textColor = [UIColor colorWithRed:0.2 green:0.95 blue:0.4 alpha:1.0];
     }
     [self.turboSwitch addTarget:self action:@selector(turboSwitchChanged:) forControlEvents:UIControlEventValueChanged];
-    [revivalCard addSubview:self.turboSwitch];
+    [self.revivalCard addSubview:self.turboSwitch];
     
-    // Row 2: Deep Storage Cleaner Button
     self.cleanStorageButton = [UIButton buttonWithType:UIButtonTypeSystem];
-    self.cleanStorageButton.frame = CGRectMake(12, 78, contentW - 24, 46);
     [self.cleanStorageButton setTitle:@"🧹 Deep Clean Flash Storage & Logs (+200+ MB)" forState:UIControlStateNormal];
     self.cleanStorageButton.titleLabel.font = [UIFont boldSystemFontOfSize:13];
+    self.cleanStorageButton.titleLabel.adjustsFontSizeToFitWidth = YES;
+    self.cleanStorageButton.titleLabel.minimumScaleFactor = 0.75;
     [self.cleanStorageButton setTitleColor:[UIColor colorWithRed:0.2 green:0.85 blue:1.0 alpha:1.0] forState:UIControlStateNormal];
     self.cleanStorageButton.backgroundColor = [UIColor colorWithRed:0.10 green:0.18 blue:0.26 alpha:0.9];
     self.cleanStorageButton.layer.cornerRadius = 12;
     self.cleanStorageButton.layer.borderWidth = 1.0;
     self.cleanStorageButton.layer.borderColor = [UIColor colorWithRed:0.2 green:0.5 blue:0.7 alpha:0.4].CGColor;
     [self.cleanStorageButton addTarget:self action:@selector(cleanStorageTapped:) forControlEvents:UIControlEventTouchUpInside];
-    [revivalCard addSubview:self.cleanStorageButton];
+    [self.revivalCard addSubview:self.cleanStorageButton];
     
-    // Row 3: Anti-Jetsam Memory Protection Status
-    UIView *jetsamRow = [[UIView alloc] initWithFrame:CGRectMake(12, 134, contentW - 24, 44)];
-    jetsamRow.backgroundColor = [UIColor colorWithRed:0.05 green:0.07 blue:0.10 alpha:0.8];
-    jetsamRow.layer.cornerRadius = 10;
-    [revivalCard addSubview:jetsamRow];
+    self.jetsamRow = [[UIView alloc] init];
+    self.jetsamRow.backgroundColor = [UIColor colorWithRed:0.05 green:0.07 blue:0.10 alpha:0.8];
+    self.jetsamRow.layer.cornerRadius = 10;
+    [self.revivalCard addSubview:self.jetsamRow];
     
-    UILabel *jIcon = [[UILabel alloc] initWithFrame:CGRectMake(10, 10, 24, 24)];
-    jIcon.text = @"🔒";
-    jIcon.font = [UIFont systemFontOfSize:16];
-    [jetsamRow addSubview:jIcon];
+    self.jIcon = [[UILabel alloc] init];
+    self.jIcon.text = @"🔒";
+    self.jIcon.font = [UIFont systemFontOfSize:16];
+    [self.jetsamRow addSubview:self.jIcon];
     
-    self.jetsamStatusLabel = [[UILabel alloc] initWithFrame:CGRectMake(38, 5, contentW - 70, 34)];
-    self.jetsamStatusLabel.text = @"Anti-Jetsam Kernel Shield Active (30s Grace Period)\nSafari tabs & background apps protected from memory termination.";
+    self.jetsamStatusLabel = [[UILabel alloc] init];
+    self.jetsamStatusLabel.text = @"Anti-Jetsam Kernel Shield Active (30s Grace Period)\nSafari tabs & background apps protected from termination.";
     self.jetsamStatusLabel.numberOfLines = 2;
     self.jetsamStatusLabel.font = [UIFont systemFontOfSize:11 weight:UIFontWeightMedium];
     self.jetsamStatusLabel.textColor = [UIColor colorWithRed:0.3 green:0.95 blue:0.45 alpha:1.0];
-    [jetsamRow addSubview:self.jetsamStatusLabel];
+    self.jetsamStatusLabel.adjustsFontSizeToFitWidth = YES;
+    self.jetsamStatusLabel.minimumScaleFactor = 0.75;
+    [self.jetsamRow addSubview:self.jetsamStatusLabel];
     
-    y += 202;
+    // CARD 3: Active Defenses
+    self.defCard = [[UIView alloc] init];
+    self.defCard.backgroundColor = [UIColor colorWithRed:0.08 green:0.10 blue:0.14 alpha:0.95];
+    self.defCard.layer.cornerRadius = 16;
+    self.defCard.layer.borderWidth = 1.0;
+    self.defCard.layer.borderColor = [UIColor colorWithRed:0.15 green:0.20 blue:0.28 alpha:1.0].CGColor;
+    [self.scrollView addSubview:self.defCard];
     
-    // CARD 3: Active Defenses & Protocols (7 Rows + Config Gateway Button)
-    UIView *defCard = [[UIView alloc] initWithFrame:CGRectMake(startX, y, contentW, 315)];
-    defCard.backgroundColor = [UIColor colorWithRed:0.08 green:0.10 blue:0.14 alpha:0.95];
-    defCard.layer.cornerRadius = 16;
-    defCard.layer.borderWidth = 1.0;
-    defCard.layer.borderColor = [UIColor colorWithRed:0.15 green:0.20 blue:0.28 alpha:1.0].CGColor;
-    [self.scrollView addSubview:defCard];
+    self.cfgBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+    [self.cfgBtn setTitle:@"⚙️ Config Gateway" forState:UIControlStateNormal];
+    self.cfgBtn.titleLabel.font = [UIFont systemFontOfSize:11 weight:UIFontWeightBold];
+    self.cfgBtn.titleLabel.adjustsFontSizeToFitWidth = YES;
+    self.cfgBtn.titleLabel.minimumScaleFactor = 0.75;
+    [self.cfgBtn setTitleColor:[UIColor colorWithRed:0.0 green:0.85 blue:1.0 alpha:1.0] forState:UIControlStateNormal];
+    self.cfgBtn.backgroundColor = [UIColor colorWithRed:0.08 green:0.22 blue:0.28 alpha:0.8];
+    self.cfgBtn.layer.cornerRadius = 8;
+    [self.cfgBtn addTarget:self action:@selector(configGatewayTapped:) forControlEvents:UIControlEventTouchUpInside];
+    [self.defCard addSubview:self.cfgBtn];
     
-    UIButton *cfgBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    cfgBtn.frame = CGRectMake(contentW - 130, 8, 118, 26);
-    [cfgBtn setTitle:@"⚙️ Config Gateway" forState:UIControlStateNormal];
-    cfgBtn.titleLabel.font = [UIFont systemFontOfSize:11 weight:UIFontWeightBold];
-    [cfgBtn setTitleColor:[UIColor colorWithRed:0.0 green:0.85 blue:1.0 alpha:1.0] forState:UIControlStateNormal];
-    cfgBtn.backgroundColor = [UIColor colorWithRed:0.08 green:0.22 blue:0.28 alpha:0.8];
-    cfgBtn.layer.cornerRadius = 8;
-    [cfgBtn addTarget:self action:@selector(configGatewayTapped:) forControlEvents:UIControlEventTouchUpInside];
-    [defCard addSubview:cfgBtn];
-    
-    CGFloat dy = 10;
+    self.defTLabels = [NSMutableArray array];
+    self.defVLabels = [NSMutableArray array];
     NSArray *rows = @[
         @{@"t": @"Zero-Trust Gateway Lock", @"v": @"Auto-Detecting on Wi-Fi..."},
         @{@"t": @"Universal Anti-Spoof Sentinel", @"v": @"Rogue ARP Hijacks & Poisoning Defense Active"},
@@ -331,16 +391,21 @@ static NSUInteger get_free_memory_mb(void) {
     ];
     
     for (NSDictionary *r in rows) {
-        UILabel *tLbl = [[UILabel alloc] initWithFrame:CGRectMake(16, dy, contentW - 150, 15)];
+        UILabel *tLbl = [[UILabel alloc] init];
         tLbl.text = r[@"t"];
         tLbl.font = [UIFont systemFontOfSize:10 weight:UIFontWeightMedium];
         tLbl.textColor = [UIColor colorWithWhite:0.5 alpha:1.0];
-        [defCard addSubview:tLbl];
+        tLbl.adjustsFontSizeToFitWidth = YES;
+        tLbl.minimumScaleFactor = 0.75;
+        [self.defCard addSubview:tLbl];
+        [self.defTLabels addObject:tLbl];
         
-        UILabel *vLbl = [[UILabel alloc] initWithFrame:CGRectMake(16, dy + 15, contentW - 32, 18)];
+        UILabel *vLbl = [[UILabel alloc] init];
         vLbl.text = r[@"v"];
         vLbl.font = [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
         vLbl.textColor = [UIColor whiteColor];
+        vLbl.adjustsFontSizeToFitWidth = YES;
+        vLbl.minimumScaleFactor = 0.75;
         if ([r[@"t"] containsString:@"Gateway Lock"]) {
             self.gatewayLabel = vLbl;
             vLbl.textColor = [UIColor colorWithRed:0.2 green:0.85 blue:1.0 alpha:1.0];
@@ -356,128 +421,139 @@ static NSUInteger get_free_memory_mb(void) {
         } else if ([r[@"t"] containsString:@"Stremio"]) {
             vLbl.textColor = [UIColor colorWithRed:1.0 green:0.7 blue:0.2 alpha:1.0];
         }
-        [defCard addSubview:vLbl];
-        dy += 41;
+        [self.defCard addSubview:vLbl];
+        [self.defVLabels addObject:vLbl];
     }
-    y += 327;
     
-    // CARD 4: VIP Prioritized Apps & Gamepads Shelf
-    UIView *vipCard = [[UIView alloc] initWithFrame:CGRectMake(startX, y, contentW, 130)];
-    vipCard.backgroundColor = [UIColor colorWithRed:0.08 green:0.10 blue:0.14 alpha:0.95];
-    vipCard.layer.cornerRadius = 16;
-    vipCard.layer.borderWidth = 1.0;
-    vipCard.layer.borderColor = [UIColor colorWithRed:0.15 green:0.20 blue:0.28 alpha:1.0].CGColor;
-    [self.scrollView addSubview:vipCard];
+    // CARD 4: VIP Apps
+    self.vipCard = [[UIView alloc] init];
+    self.vipCard.backgroundColor = [UIColor colorWithRed:0.08 green:0.10 blue:0.14 alpha:0.95];
+    self.vipCard.layer.cornerRadius = 16;
+    self.vipCard.layer.borderWidth = 1.0;
+    self.vipCard.layer.borderColor = [UIColor colorWithRed:0.15 green:0.20 blue:0.28 alpha:1.0].CGColor;
+    [self.scrollView addSubview:self.vipCard];
     
-    UILabel *vipTitle = [[UILabel alloc] initWithFrame:CGRectMake(16, 12, contentW - 32, 16)];
-    vipTitle.text = @"VIP REAL-TIME PROCESS SCHEDULER (nice -20)";
-    vipTitle.font = [UIFont systemFontOfSize:11 weight:UIFontWeightBold];
-    vipTitle.textColor = [UIColor colorWithWhite:0.5 alpha:1.0];
-    [vipCard addSubview:vipTitle];
+    self.vipTitle = [[UILabel alloc] init];
+    self.vipTitle.text = @"VIP REAL-TIME PROCESS SCHEDULER (nice -20)";
+    self.vipTitle.font = [UIFont systemFontOfSize:11 weight:UIFontWeightBold];
+    self.vipTitle.textColor = [UIColor colorWithWhite:0.5 alpha:1.0];
+    self.vipTitle.adjustsFontSizeToFitWidth = YES;
+    self.vipTitle.minimumScaleFactor = 0.75;
+    [self.vipCard addSubview:self.vipTitle];
     
-    UILabel *vipList = [[UILabel alloc] initWithFrame:CGRectMake(16, 30, contentW - 32, 60)];
-    vipList.text = @"🎬 Stremio • NodeMobile • YouTube • Netflix • Prime Video • Disney+\n🎮 Roblox • Minecraft • Delta • RetroArch • Moonlight • GeForceNOW\n🕹️ Bluetooth Controllers (Xbox, DualSense, Switch Pro, MFi Gamepads)";
-    vipList.numberOfLines = 3;
-    vipList.font = [UIFont systemFontOfSize:11 weight:UIFontWeightMedium];
-    vipList.textColor = [UIColor colorWithRed:0.85 green:0.9 blue:1.0 alpha:0.9];
-    [vipCard addSubview:vipList];
+    self.vipList = [[UILabel alloc] init];
+    self.vipList.text = @"🎬 Stremio • NodeMobile • YouTube • Netflix • Prime Video • Disney+\n🎮 Roblox • Minecraft • Delta • RetroArch • Moonlight • GeForceNOW\n🕹️ Bluetooth Controllers (Xbox, DualSense, Switch Pro, MFi Gamepads)";
+    self.vipList.numberOfLines = 0;
+    self.vipList.font = [UIFont systemFontOfSize:11 weight:UIFontWeightMedium];
+    self.vipList.textColor = [UIColor colorWithRed:0.85 green:0.9 blue:1.0 alpha:0.9];
+    self.vipList.adjustsFontSizeToFitWidth = YES;
+    self.vipList.minimumScaleFactor = 0.75;
+    [self.vipCard addSubview:self.vipList];
     
-    UILabel *vipSub = [[UILabel alloc] initWithFrame:CGRectMake(16, 96, contentW - 32, 18)];
-    vipSub.text = @"✓ Background watchdog auto-boosts apps & gamepads for zero input lag.";
-    vipSub.font = [UIFont systemFontOfSize:11 weight:UIFontWeightRegular];
-    vipSub.textColor = [UIColor colorWithRed:0.3 green:0.85 blue:0.45 alpha:0.9];
-    [vipCard addSubview:vipSub];
-    y += 142;
+    self.vipSub = [[UILabel alloc] init];
+    self.vipSub.text = @"✓ Background watchdog auto-boosts apps & gamepads for zero input lag.";
+    self.vipSub.font = [UIFont systemFontOfSize:11 weight:UIFontWeightRegular];
+    self.vipSub.textColor = [UIColor colorWithRed:0.3 green:0.85 blue:0.45 alpha:0.9];
+    self.vipSub.adjustsFontSizeToFitWidth = YES;
+    self.vipSub.minimumScaleFactor = 0.75;
+    [self.vipCard addSubview:self.vipSub];
     
-    // CARD 4: 24/7 Persistent Daemon Toggle
-    UIView *daemonCard = [[UIView alloc] initWithFrame:CGRectMake(startX, y, contentW, 85)];
-    daemonCard.backgroundColor = [UIColor colorWithRed:0.08 green:0.10 blue:0.14 alpha:0.95];
-    daemonCard.layer.cornerRadius = 16;
-    daemonCard.layer.borderWidth = 1.0;
-    daemonCard.layer.borderColor = [UIColor colorWithRed:0.15 green:0.20 blue:0.28 alpha:1.0].CGColor;
-    [self.scrollView addSubview:daemonCard];
+    // CARD 5: Daemon
+    self.daemonCard = [[UIView alloc] init];
+    self.daemonCard.backgroundColor = [UIColor colorWithRed:0.08 green:0.10 blue:0.14 alpha:0.95];
+    self.daemonCard.layer.cornerRadius = 16;
+    self.daemonCard.layer.borderWidth = 1.0;
+    self.daemonCard.layer.borderColor = [UIColor colorWithRed:0.15 green:0.20 blue:0.28 alpha:1.0].CGColor;
+    [self.scrollView addSubview:self.daemonCard];
     
-    UILabel *dTitle = [[UILabel alloc] initWithFrame:CGRectMake(16, 14, contentW - 90, 20)];
-    dTitle.text = @"24/7 Always-On Background Daemon";
-    dTitle.font = [UIFont systemFontOfSize:14 weight:UIFontWeightBold];
-    dTitle.textColor = [UIColor whiteColor];
-    [daemonCard addSubview:dTitle];
+    self.dTitle = [[UILabel alloc] init];
+    self.dTitle.text = @"24/7 Always-On Background Daemon";
+    self.dTitle.font = [UIFont systemFontOfSize:14 weight:UIFontWeightBold];
+    self.dTitle.textColor = [UIColor whiteColor];
+    self.dTitle.adjustsFontSizeToFitWidth = YES;
+    self.dTitle.minimumScaleFactor = 0.75;
+    [self.daemonCard addSubview:self.dTitle];
     
-    self.daemonStatusLabel = [[UILabel alloc] initWithFrame:CGRectMake(16, 36, contentW - 90, 36)];
+    self.daemonStatusLabel = [[UILabel alloc] init];
     self.daemonStatusLabel.text = @"Off: Shield active in App Switcher; reverts when swiped away.";
     self.daemonStatusLabel.numberOfLines = 2;
     self.daemonStatusLabel.font = [UIFont systemFontOfSize:11 weight:UIFontWeightMedium];
     self.daemonStatusLabel.textColor = [UIColor colorWithWhite:0.6 alpha:1.0];
-    [daemonCard addSubview:self.daemonStatusLabel];
+    self.daemonStatusLabel.adjustsFontSizeToFitWidth = YES;
+    self.daemonStatusLabel.minimumScaleFactor = 0.75;
+    [self.daemonCard addSubview:self.daemonStatusLabel];
     
-    self.daemonSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(contentW - 65, 27, 51, 31)];
+    self.daemonSwitch = [[UISwitch alloc] init];
     [self.daemonSwitch addTarget:self action:@selector(daemonSwitchChanged:) forControlEvents:UIControlEventValueChanged];
-    [daemonCard addSubview:self.daemonSwitch];
-    y += 97;
+    [self.daemonCard addSubview:self.daemonSwitch];
     
-    // CARD 5: Developer & Open-Source Projects (GitHub)
-    UIView *gitCard = [[UIView alloc] initWithFrame:CGRectMake(startX, y, contentW, 114)];
-    gitCard.backgroundColor = [UIColor colorWithRed:0.08 green:0.10 blue:0.14 alpha:0.95];
-    gitCard.layer.cornerRadius = 16;
-    gitCard.layer.borderWidth = 1.0;
-    gitCard.layer.borderColor = [UIColor colorWithRed:0.15 green:0.20 blue:0.28 alpha:1.0].CGColor;
-    [self.scrollView addSubview:gitCard];
+    // CARD 6: GitHub & Open Source
+    self.gitCard = [[UIView alloc] init];
+    self.gitCard.backgroundColor = [UIColor colorWithRed:0.08 green:0.10 blue:0.14 alpha:0.95];
+    self.gitCard.layer.cornerRadius = 16;
+    self.gitCard.layer.borderWidth = 1.0;
+    self.gitCard.layer.borderColor = [UIColor colorWithRed:0.15 green:0.20 blue:0.28 alpha:1.0].CGColor;
+    [self.scrollView addSubview:self.gitCard];
     
-    UILabel *gitTitle = [[UILabel alloc] initWithFrame:CGRectMake(16, 12, contentW - 32, 16)];
-    gitTitle.text = @"👨‍💻 DEVELOPER PROJECTS & OPEN-SOURCE";
-    gitTitle.font = [UIFont systemFontOfSize:11 weight:UIFontWeightBold];
-    gitTitle.textColor = [UIColor colorWithWhite:0.55 alpha:1.0];
-    [gitCard addSubview:gitTitle];
+    self.gitTitle = [[UILabel alloc] init];
+    self.gitTitle.text = @"👨‍💻 DEVELOPER PROJECTS & OPEN-SOURCE";
+    self.gitTitle.font = [UIFont systemFontOfSize:11 weight:UIFontWeightBold];
+    self.gitTitle.textColor = [UIColor colorWithWhite:0.55 alpha:1.0];
+    self.gitTitle.adjustsFontSizeToFitWidth = YES;
+    self.gitTitle.minimumScaleFactor = 0.75;
+    [self.gitCard addSubview:self.gitTitle];
     
-    UIButton *gitButton = [UIButton buttonWithType:UIButtonTypeCustom];
-    gitButton.frame = CGRectMake(12, 34, contentW - 24, 66);
-    gitButton.backgroundColor = [UIColor colorWithRed:0.12 green:0.15 blue:0.22 alpha:0.95];
-    gitButton.layer.cornerRadius = 12;
-    gitButton.layer.borderWidth = 1.0;
-    gitButton.layer.borderColor = [UIColor colorWithRed:0.22 green:0.35 blue:0.52 alpha:0.5].CGColor;
-    [gitButton addTarget:self action:@selector(openGitHubTapped:) forControlEvents:UIControlEventTouchUpInside];
-    [gitCard addSubview:gitButton];
+    self.gitButton = [UIButton buttonWithType:UIButtonTypeCustom];
+    self.gitButton.backgroundColor = [UIColor colorWithRed:0.12 green:0.15 blue:0.22 alpha:0.95];
+    self.gitButton.layer.cornerRadius = 12;
+    self.gitButton.layer.borderWidth = 1.0;
+    self.gitButton.layer.borderColor = [UIColor colorWithRed:0.22 green:0.35 blue:0.52 alpha:0.5].CGColor;
+    [self.gitButton addTarget:self action:@selector(openGitHubTapped:) forControlEvents:UIControlEventTouchUpInside];
+    [self.gitCard addSubview:self.gitButton];
     
-    UILabel *ghIcon = [[UILabel alloc] initWithFrame:CGRectMake(14, 13, 40, 40)];
-    ghIcon.text = @"🐙";
-    ghIcon.font = [UIFont systemFontOfSize:30];
-    ghIcon.textAlignment = NSTextAlignmentCenter;
-    [gitButton addSubview:ghIcon];
+    self.ghIcon = [[UILabel alloc] init];
+    self.ghIcon.text = @"🐙";
+    self.ghIcon.font = [UIFont systemFontOfSize:30];
+    self.ghIcon.textAlignment = NSTextAlignmentCenter;
+    [self.gitButton addSubview:self.ghIcon];
     
-    self.githubNameLabel = [[UILabel alloc] initWithFrame:CGRectMake(60, 12, contentW - 170, 22)];
+    self.githubNameLabel = [[UILabel alloc] init];
     self.githubNameLabel.text = @"NightKnight24 (GitHub)";
     self.githubNameLabel.font = [UIFont boldSystemFontOfSize:16];
     self.githubNameLabel.textColor = [UIColor whiteColor];
-    [gitButton addSubview:self.githubNameLabel];
+    self.githubNameLabel.adjustsFontSizeToFitWidth = YES;
+    self.githubNameLabel.minimumScaleFactor = 0.75;
+    [self.gitButton addSubview:self.githubNameLabel];
     
-    self.githubSubLabel = [[UILabel alloc] initWithFrame:CGRectMake(60, 36, contentW - 170, 18)];
+    self.githubSubLabel = [[UILabel alloc] init];
     self.githubSubLabel.text = @"NightKnight Cinema • Anti-Lag Shield Pro • Open Source";
     self.githubSubLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightMedium];
     self.githubSubLabel.textColor = [UIColor colorWithRed:0.0 green:0.82 blue:0.95 alpha:0.9];
-    [gitButton addSubview:self.githubSubLabel];
+    self.githubSubLabel.adjustsFontSizeToFitWidth = YES;
+    self.githubSubLabel.minimumScaleFactor = 0.75;
+    [self.gitButton addSubview:self.githubSubLabel];
     
-    UILabel *arrowLabel = [[UILabel alloc] initWithFrame:CGRectMake(contentW - 24 - 100, 22, 90, 22)];
-    arrowLabel.text = @"Visit Profile ↗";
-    arrowLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightBold];
-    arrowLabel.textColor = [UIColor colorWithRed:0.2 green:0.85 blue:1.0 alpha:1.0];
-    arrowLabel.textAlignment = NSTextAlignmentRight;
-    [gitButton addSubview:arrowLabel];
+    self.arrowLabel = [[UILabel alloc] init];
+    self.arrowLabel.text = @"Visit Profile ↗";
+    self.arrowLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightBold];
+    self.arrowLabel.textColor = [UIColor colorWithRed:0.2 green:0.85 blue:1.0 alpha:1.0];
+    self.arrowLabel.textAlignment = NSTextAlignmentRight;
+    self.arrowLabel.adjustsFontSizeToFitWidth = YES;
+    self.arrowLabel.minimumScaleFactor = 0.75;
+    [self.gitButton addSubview:self.arrowLabel];
     
     UILongPressGestureRecognizer *ghPress = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(gitButtonLongPressed:)];
-    [gitButton addGestureRecognizer:ghPress];
+    [self.gitButton addGestureRecognizer:ghPress];
     
-    y += 126;
-    
-    // Footer Note
-    UILabel *footerLabel = [[UILabel alloc] initWithFrame:CGRectMake(startX, y, contentW, 20)];
-    footerLabel.text = @"Engineered with ❤️ for the Jailbreak & Gaming Community";
-    footerLabel.font = [UIFont systemFontOfSize:11 weight:UIFontWeightMedium];
-    footerLabel.textColor = [UIColor colorWithWhite:0.4 alpha:1.0];
-    footerLabel.textAlignment = NSTextAlignmentCenter;
-    [self.scrollView addSubview:footerLabel];
-    y += 35;
-    
-    self.scrollView.contentSize = CGSizeMake(width, y + 40);
+    // Footer
+    self.footerLabel = [[UILabel alloc] init];
+    self.footerLabel.text = @"Engineered with ❤️ for the Jailbreak & Gaming Community";
+    self.footerLabel.font = [UIFont systemFontOfSize:11 weight:UIFontWeightMedium];
+    self.footerLabel.textColor = [UIColor colorWithWhite:0.4 alpha:1.0];
+    self.footerLabel.textAlignment = NSTextAlignmentCenter;
+    self.footerLabel.adjustsFontSizeToFitWidth = YES;
+    self.footerLabel.minimumScaleFactor = 0.75;
+    [self.scrollView addSubview:self.footerLabel];
     
     [self checkDaemonStatus];
     [self applyShield];
@@ -492,6 +568,145 @@ static NSUInteger get_free_memory_mb(void) {
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
     self.scrollView.frame = self.view.bounds;
+    [self relayoutUI];
+}
+
+- (void)relayoutUI {
+    CGFloat width = self.view.bounds.size.width;
+    if (width <= 0) return;
+    
+    // Dynamic content width: max 680pt on iPad, full width minus 32pt padding on iPhone
+    CGFloat contentW = MIN(width - 32.0, 680.0);
+    CGFloat startX = (width - contentW) / 2.0;
+    CGFloat y = 36.0;
+    
+    // Header
+    self.iconLabel.frame = CGRectMake(startX, y, contentW, 46);
+    y += 50;
+    
+    self.titleLabel.frame = CGRectMake(startX, y, contentW, 28);
+    y += 30;
+    
+    self.subLabel.frame = CGRectMake(startX, y, contentW, 20);
+    y += 28;
+    
+    CGFloat badgeW = MIN(contentW - 32.0, 270.0);
+    self.statusBadge.frame = CGRectMake(startX + (contentW - badgeW) / 2.0, y, badgeW, 32);
+    y += 42;
+    
+    self.modeControl.frame = CGRectMake(startX, y, contentW, 40);
+    y += 50;
+    
+    // CARD 1: Live Telemetry & RAM Booster
+    // On narrow screens (< 440pt width), use a 2x2 grid so titles and numbers never truncate!
+    BOOL isNarrow = (contentW < 440.0);
+    CGFloat telemetryH = isNarrow ? 178.0 : 140.0;
+    self.telemetryCard.frame = CGRectMake(startX, y, contentW, telemetryH);
+    
+    if (isNarrow) {
+        CGFloat colW = (contentW - 32.0) / 2.0;
+        // Row 1: Gateway & Internet
+        self.rTitle.frame = CGRectMake(12, 12, colW, 16);
+        self.routerPingLabel.frame = CGRectMake(12, 28, colW, 24);
+        
+        self.iTitle.frame = CGRectMake(20 + colW, 12, colW, 16);
+        self.internetPingLabel.frame = CGRectMake(20 + colW, 28, colW, 24);
+        
+        // Row 2: Battery & RAM
+        self.bTitle.frame = CGRectMake(12, 60, colW, 16);
+        self.batteryLabel.frame = CGRectMake(12, 76, colW, 24);
+        
+        self.mTitle.frame = CGRectMake(20 + colW, 60, colW, 16);
+        self.ramLabel.frame = CGRectMake(20 + colW, 76, colW, 24);
+        
+        self.purgeButton.frame = CGRectMake(12, 114, contentW - 24, 46);
+    } else {
+        CGFloat colW = (contentW - 50.0) / 4.0;
+        self.rTitle.frame = CGRectMake(12, 14, colW, 18);
+        self.routerPingLabel.frame = CGRectMake(12, 34, colW, 26);
+        
+        self.iTitle.frame = CGRectMake(16 + colW, 14, colW, 18);
+        self.internetPingLabel.frame = CGRectMake(16 + colW, 34, colW, 26);
+        
+        self.bTitle.frame = CGRectMake(20 + colW * 2, 14, colW, 18);
+        self.batteryLabel.frame = CGRectMake(20 + colW * 2, 34, colW, 26);
+        
+        self.mTitle.frame = CGRectMake(24 + colW * 3, 14, colW, 18);
+        self.ramLabel.frame = CGRectMake(24 + colW * 3, 34, colW, 26);
+        
+        self.purgeButton.frame = CGRectMake(12, 76, contentW - 24, 48);
+    }
+    y += telemetryH + 14.0;
+    
+    // CARD 2: Device Revival & Hardware Acceleration
+    CGFloat revivalH = 214.0;
+    self.revivalCard.frame = CGRectMake(startX, y, contentW, revivalH);
+    
+    self.revivalTitle.frame = CGRectMake(16, 12, contentW - 32, 16);
+    self.turboTitle.frame = CGRectMake(16, 34, contentW - 85, 20);
+    self.turboStatusLabel.frame = CGRectMake(16, 56, contentW - 85, 34);
+    self.turboSwitch.frame = CGRectMake(contentW - 65, 38, 51, 31);
+    self.cleanStorageButton.frame = CGRectMake(12, 98, contentW - 24, 46);
+    self.jetsamRow.frame = CGRectMake(12, 154, contentW - 24, 48);
+    self.jIcon.frame = CGRectMake(10, 12, 24, 24);
+    self.jetsamStatusLabel.frame = CGRectMake(38, 5, contentW - 74, 38);
+    y += revivalH + 14.0;
+    
+    // CARD 3: Active Defenses & Protocols
+    CGFloat cfgW = isNarrow ? 100.0 : 120.0;
+    self.cfgBtn.frame = CGRectMake(contentW - cfgW - 12.0, 8, cfgW, 26);
+    
+    CGFloat defH = 12.0 + (self.defTLabels.count * 43.0) + 8.0;
+    self.defCard.frame = CGRectMake(startX, y, contentW, defH);
+    
+    CGFloat dy = 10.0;
+    for (NSUInteger i = 0; i < self.defTLabels.count; i++) {
+        UILabel *tLbl = self.defTLabels[i];
+        UILabel *vLbl = self.defVLabels[i];
+        tLbl.frame = CGRectMake(16, dy, contentW - cfgW - 24.0, 15);
+        vLbl.frame = CGRectMake(16, dy + 15, contentW - 32, 18);
+        dy += 43.0;
+    }
+    y += defH + 14.0;
+    
+    // CARD 4: VIP Process Scheduler
+    CGFloat vipH = 132.0;
+    self.vipCard.frame = CGRectMake(startX, y, contentW, vipH);
+    self.vipTitle.frame = CGRectMake(16, 12, contentW - 32, 16);
+    self.vipList.frame = CGRectMake(16, 32, contentW - 32, 66);
+    self.vipSub.frame = CGRectMake(16, 102, contentW - 32, 20);
+    y += vipH + 14.0;
+    
+    // CARD 5: Daemon Card
+    CGFloat daemonH = 85.0;
+    self.daemonCard.frame = CGRectMake(startX, y, contentW, daemonH);
+    self.dTitle.frame = CGRectMake(16, 14, contentW - 85, 20);
+    self.daemonStatusLabel.frame = CGRectMake(16, 36, contentW - 85, 36);
+    self.daemonSwitch.frame = CGRectMake(contentW - 65, 26, 51, 31);
+    y += daemonH + 14.0;
+    
+    // CARD 6: GitHub & Open Source
+    CGFloat gitH = 114.0;
+    self.gitCard.frame = CGRectMake(startX, y, contentW, gitH);
+    self.gitTitle.frame = CGRectMake(16, 12, contentW - 32, 16);
+    
+    CGFloat gBtnW = contentW - 24.0;
+    self.gitButton.frame = CGRectMake(12, 34, gBtnW, 66);
+    self.ghIcon.frame = CGRectMake(12, 13, 40, 40);
+    
+    CGFloat arrowW = 90.0;
+    self.arrowLabel.frame = CGRectMake(gBtnW - arrowW - 12.0, 22, arrowW, 22);
+    
+    CGFloat textW = gBtnW - 60.0 - arrowW - 16.0;
+    self.githubNameLabel.frame = CGRectMake(58, 12, textW, 22);
+    self.githubSubLabel.frame = CGRectMake(58, 36, textW, 18);
+    y += gitH + 14.0;
+    
+    // Footer
+    self.footerLabel.frame = CGRectMake(startX, y, contentW, 20);
+    y += 35.0;
+    
+    self.scrollView.contentSize = CGSizeMake(width, y + 30.0);
 }
 
 - (void)modeChanged:(UISegmentedControl *)sender {
