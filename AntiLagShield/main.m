@@ -9,8 +9,12 @@ extern char **environ;
 
 static void run_cmd(NSString *command) {
     pid_t pid;
-    const char *argv[] = {"/var/jb/usr/bin/bash", "-c", [command UTF8String], NULL};
-    posix_spawn(&pid, "/var/jb/usr/bin/bash", NULL, NULL, (char * const *)argv, environ);
+    const char *sh = "/var/jb/usr/bin/bash";
+    if (access(sh, X_OK) != 0) sh = "/usr/bin/bash";
+    if (access(sh, X_OK) != 0) sh = "/bin/bash";
+    if (access(sh, X_OK) != 0) sh = "/var/jb/usr/bin/sh";
+    const char *argv[] = {sh, "-c", [command UTF8String], NULL};
+    posix_spawn(&pid, sh, NULL, NULL, (char * const *)argv, environ);
     int status;
     waitpid(pid, &status, 0);
 }
