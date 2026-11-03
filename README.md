@@ -1,157 +1,125 @@
-# Anti-Lag Shield Pro (Universal iOS & iPadOS Sentinel & Device Revival)
+# Anti-Lag Shield
 
-Comprehensive repository and documentation for **Anti-Lag Shield Pro v3.8**.
-Engineered to support **all 64-bit iOS & iPadOS devices** from **iOS 12.0 to iOS 18.x**, combining low-latency network sentinel defenses with deep hardware & storage device revival.
+**Network Latency & TCP Dynamic Buffer Optimizer for iPadOS & iOS**
 
----
+[![iOS 12.0 - 18.x](https://img.shields.io/badge/iOS-12.0_--_18.x-00d2f5.svg)](https://github.com/NightKnight24/AntiLagShield)
+[![Architecture](https://img.shields.io/badge/Architecture-arm64_%7C_Rootless_%7C_Rootful-30d158.svg)](https://github.com/NightKnight24/AntiLagShield)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](license.html)
+[![YouTube Showcase](https://img.shields.io/badge/YouTube-Watch_Showcase-red.svg)](https://www.youtube.com/@NightKnight24)
 
-## ⚡ Device Revival & System Health Category (v3.8)
-
-In addition to network packet optimization, v3.8 introduces a dedicated **Device Revival** layer designed to make aging devices with 2–3 GB RAM feel brand new:
-
-1. **🧹 Deep Flash Storage & Cache Cleaner:**
-   * 1-tap reclamation of hundreds of megabytes or gigabytes of stale crash dumps (`/var/mobile/Library/Logs/CrashReporter`), diagnostic traces, and expired WebKit caches.
-   * Drastically reduces NAND write amplification and restores snappy, instant app launch times.
-2. **🚀 Turbo UI Mode (0ms Touch & No GPU Blur):**
-   * Uses native private `AccessibilityUtilities` APIs (`_AXSSetReduceMotionEnabled` and `_AXSSetEnhanceBackgroundContrastEnabled`).
-   * Bypasses heavy real-time GPU Gaussian blur shaders across the Dock, Control Center, and widgets.
-   * Cuts app opening latency from 500ms spring animations to 0ms instant touch response.
-3. **🔒 Anti-Jetsam Kernel Shielding (`memorystatus`):**
-   * Relaxes aggressive kernel memory kill thresholds (`kern.memorystatus_purge_on_warning=1`, `kern.memorystatus_apps_idle_delay_time=30`).
-   * Extends the app idle grace period from 10s to 30s, preventing background app termination and Safari tab reloads.
-   * Tunes TCP keep-alive sockets (`net.inet.tcp.always_keepalive=1`, `net.inet.tcp.keepidle=30000`).
-4. **🛡️ 12-Daemon AI, Vision & Telemetry Neutralizer:**
-   * Halts `photoanalysisd`, `mediaanalysisd`, `cloudphotod`, `tipsd`, `tailspind`, `spindump`, `triald`, `adprivacyd`, `parsec-fbf`, `siriinferenced`, `duetexpertd`, and `coreduetd`.
-   * Completely eliminates background computer vision and neural training loops on general CPU cores.
+Anti-Lag Shield is a lightweight, passive network tuning suite and latency optimizer for 64-bit iPadOS and iOS devices. Built specifically to eliminate micro-stutters and bufferbloat in high-throughput video streaming (Stremio, YouTube, Netflix, Disney+) and cloud gaming (Moonlight, GeForce NOW, RetroArch, Roblox).
 
 ---
 
-## 📦 How to Install (For Any User)
+## 🎥 YouTube Showcase & Demo
 
-Anti-Lag Shield Pro is pre-packaged and ready for any user to install across all 64-bit iOS & iPadOS devices:
+Watch the official 1080p feature walkthrough and demonstration on YouTube:
 
-### Option 1: Sileo / Zebra / Cydia (Standard `.deb` Package)
-1. Download **[`dist/AntiLagShield_v3.8_rootless.deb`](dist/AntiLagShield_v3.8_rootless.deb)** (for Dopamine, palera1n rootless, Sileo, Zebra) or **[`dist/AntiLagShield_v3.8_rootful.deb`](dist/AntiLagShield_v3.8_rootful.deb)** (for checkra1n, unc0ver, Cydia).
-2. Tap **Share** → **Open in Sileo** (or Zebra) and tap **Install**.
-3. The app icon will appear directly on your Home Screen.
+[![Watch Anti-Lag Shield Showcase](assets/AntiLagShield_Banner.png)](https://www.youtube.com/@NightKnight24)
 
-### Option 2: TrollStore 1-Tap Install (`.tipa`)
-1. Download **[`dist/AntiLagShield_v3.8.tipa`](dist/AntiLagShield_v3.8.tipa)**.
-2. Tap **Share** → **Open in TrollStore**.
-3. Installs with persistent root capabilities without needing a full jailbreak!
+> 📺 **[Click here to watch the full Video Showcase on YouTube](https://www.youtube.com/@NightKnight24)**  
+> *(Leave feedback, questions, or device benchmark results in the video comments!)*
 
-### Option 3: One-Line Terminal Installer (SSH / NewTerm)
-Run this single command directly in terminal on any jailbroken iPhone or iPad:
+---
+
+## ⚡ Key Features & Architecture
+
+### 1. 🎛️ Three Quick-Toggle Options
+Switch modes instantly from anywhere on your device:
+* **Control Center Module (`CCSupport`):** Swipe down from the top-right corner inside any app or game, and tap the Anti-Lag Shield module to toggle between Active and Off.
+* **Interactive Notification Banner:** Pull down or hold the banner in the Notification Center / Lock Screen to switch between `🎬 Streaming`, `🎮 Gaming`, and `🛑 Turn Off`.
+* **Siri Shortcuts & Widgets:** Custom URL schemes (`shield://streaming`, `shield://gaming`, `shield://off`) allow 1-tap switching from Lock Screen circular widgets, Home Screen icons, or voice commands.
+
+### 2. 🚀 100% Passive Kernel Model (0% Background CPU)
+* **Zero Background Loops:** No persistent daemon loops, no process forks, and 0% idle CPU drain.
+* **XNU Kernel Resident:** Network optimizations are applied directly to the Darwin kernel (`sysctl`) and remain locked in kernel memory.
+* **Adaptive Delayed ACK:**
+  * **Streaming Mode (`net.inet.tcp.delayed_ack=3`):** Adaptive RFC 5681 delayed ACK rate delivers high-throughput TCP window scaling without flooding the router with ACK packets.
+  * **Gaming Mode (`net.inet.tcp.delayed_ack=0`):** 0ms instant acknowledgment for real-time competitive gaming packet response.
+* **4MB Dynamic Socket Buffers:**
+  * `net.inet.tcp.autorcvbufmax=4194304` (4 MB)
+  * `net.inet.tcp.recvspace=2097152` (2 MB)
+  * Eliminates memory pressure while ensuring smooth 1080p60 / 4K streaming buffers.
+* **TSO Offload:** Hardware TCP Segmentation Offload enabled (`net.inet.tcp.tso=1`) to offload packet processing directly to the network interface controller.
+
+### 3. 🔒 Static Hardware ARP Gateway Lock
+* Auto-discovers your local Wi-Fi router's default gateway IP and queries its hardware MAC address.
+* Permanently locks the gateway into the Darwin kernel ARP table (`arp -s <ip> <mac> permanent`), completely eliminating ARP discovery latency and protecting against LAN packet poisoning.
+
+### 4. 🧹 Inactive RAM & Flash Storage Cleaners
+* **Mach Kernel Memory Purge:** Flushes stale inactive memory pages via native Mach kernel calls and measures exact megabytes reclaimed before and after.
+* **Safe Storage Purge:** Reclaims flash storage by clearing expired WebKit caches, crash reporter logs, and stale diagnostic dumps without touching user data.
+
+### 5. 🎯 Priority Process Scheduling
+* Elevates critical media and gaming streaming engines (`mediaserverd`, `Stremio`, `NodeMobile`, `YouTube`, gamepads) to high CPU scheduling priority (`nice -10`), preventing background tasks from starving real-time audio/video decoding threads.
+
+---
+
+## 📦 Installation
+
+### Option 1: Add to Sileo or Zebra (APT Repository)
+Add the official personal repository to your package manager:
+```text
+https://nightknight24.github.io/repo/
+```
+* **[⚡ Add to Sileo](sileo://source/https://nightknight24.github.io/repo/)**
+* **[🦓 Add to Zebra](zbra://sources/add/https://nightknight24.github.io/repo/)**
+
+### Option 2: Direct Debian Package (.deb)
+Download the clean Debian package directly from releases:
+* **[`com.nightknight.antilagshield_1.0.0_iphoneos-arm64.deb`](https://github.com/NightKnight24/AntiLagShield/releases/latest)**
+
+Install via Filza or terminal:
 ```bash
-curl -sL https://raw.githubusercontent.com/NightKnight24/AntiLagShield/main/install.sh | bash
+dpkg -i com.nightknight.antilagshield_1.0.0_iphoneos-arm64.deb
 ```
 
 ---
 
-The Mach-O binary is compiled with `minos 12.0` (`LC_BUILD_VERSION`) and `UIDeviceFamily` 1 (iPhone) & 2 (iPad), enabling compatibility across 11+ years of Apple devices:
+## 📱 Device Compatibility
+
+Compiled with universal 64-bit arm64 architecture (`minos 12.0`):
 
 | Device Family | Models Supported | iOS / iPadOS Range |
 | :--- | :--- | :--- |
-| **Legacy iPhones (A7 - A8)** | iPhone 5s, iPhone 6, iPhone 6 Plus | iOS 12.0 – 12.5.7 |
-| **Legacy iPads (A7 - A8X)** | iPad Air 1, iPad mini 2, iPad mini 3 | iOS 12.0 – 12.5.7 |
-| **Mid-Era iPhones (A9 - A10)** | iPhone 6s, 6s Plus, iPhone SE (1st Gen), iPhone 7, 7 Plus | iOS 12.0 – 15.8.3 |
-| **Mid-Era iPads (A9 - A10X)** | iPad mini 4, iPad Air 2, iPad 5th/6th/7th Gen, iPad Pro 1st/2nd Gen | iOS 12.0 – 17.7.x |
-| **Modern iPhones (A11 - A17)** | iPhone 8, iPhone X, XR, XS, 11, 12, 13, 14, 15, 16 series | iOS 12.0 – 18.x |
+| **iPads (A9 - A10X)** | iPad 5th/6th/7th Gen, iPad Air 2, iPad mini 4, iPad Pro 1st/2nd Gen | iPadOS 12.0 – 17.7.x |
 | **Modern iPads (M1 - M4)** | iPad mini 5/6, iPad Air 3–5 (M2), iPad Pro (M1, M2, M4) | iPadOS 13.0 – 18.x |
+| **iPhones (A9 - A17)** | iPhone 6s through iPhone 16 Pro Max | iOS 12.0 – 18.x |
 
 ---
 
-## 🔓 Universal Jailbreak Architecture (Rootless & Rootful)
+## 🛠️ CLI Quick Reference
 
-The suite automatically inspects the filesystem to dynamically select the correct binary paths without requiring separate packages:
-
-* **Rootless (iOS 15.0 – 18.x):**
-  * Supported jailbreaks: **Dopamine**, **palera1n rootless**, **XinaA15**, **TrollStore**, **Rootless Bootstrap**.
-  * Targets `/var/jb/usr/bin`, `/var/jb/usr/sbin`, `/var/jb/bin`, and `/var/jb/Library/LaunchDaemons/`.
-* **Rootful (iOS 12.0 – 14.8.1 & Legacy):**
-  * Supported jailbreaks: **checkra1n**, **unc0ver**, **Taurine**, **Chimera**, **Odyssey**, **palera1n rootful**.
-  * Automatically falls back to `/usr/bin`, `/usr/sbin`, `/bin`, and `/Library/LaunchDaemons/`.
-
----
-
-## 🌐 100% Universal Network Capabilities
-
-Anti-Lag Shield Pro works on any home, school, office, or travel Wi-Fi network (`192.168.x.x`, `10.x.x.x`, `172.x.x.x`):
-
-1. **Automatic Gateway Auto-Discovery (Default):**
-   * Automatically detects the active Wi-Fi default router IP and queries its hardware MAC address.
-   * Normalizes the MAC address format into standard 2-digit hex and locks it permanently into the kernel ARP table on `en0`.
-2. **Manual Gateway Customization:**
-   * Users can enter custom Gateway IP & MAC addresses via the UIKit UI (`⚙️ Config Gateway` button) or CLI (`shield_ctl config set <ip> <mac>`).
-   * Stored in `/var/mobile/Library/Preferences/com.jordan.antilagshield.conf`.
-3. **Universal Anti-Spoof Sentinel:**
-   * Continuously scans the kernel ARP table: if ANY rogue device on the LAN attempts to poison the ARP cache, spoof the router, or redirect traffic, the Sentinel immediately intercepts, purges the forged entry, and restores the genuine router lock.
-4. **Bandwidth Thief Sentinel:**
-   * Automatically scans and throttles background downloaders (`nsurlsessiond`, `appstored`, `assetsd`, `cloudd`, `softwareupdated`) to `nice 10`, ensuring they never steal Wi-Fi bandwidth during active video streaming or gaming sessions.
-5. **Battery Saver & Telemetry Defense:**
-   * Unloads 9 heavy Apple background telemetry, analytics, experimentation, and inference daemons (`tipsd`, `tailspind`, `spindump`, `triald`, `adprivacyd`, `parsec-fbf`, `siriinferenced`, `duetexpertd`, `coreduetd`).
-   * Enables Darwin CPU timer coalescing (`kern.timer.coalescing_enabled=1`) so the SoC stays in deep C-state sleep longer.
-   * Throttles disk-heavy indexing daemons (`corespotlightd`, `knowledgeconstructiond`, `deleted`, `cloudphotod`) to low priority (`nice 15`).
-   * Prevents Apple's thermal and voltage CPU throttling ("battery-gate") by keeping the SoC cool and preventing current spikes.
-6. **Developer Showcase & GitHub Integration:**
-   * In-app interactive card with direct 1-tap Safari launch to developer profile: [https://github.com/NightKnight24](https://github.com/NightKnight24).
-   * Long-press to customize profile URL or configure via CLI (`shield_ctl config set-github <url>`).
-7. **Retina Display Dynamic Buffers (Non-4K):**
-   * Specifically tuned for Retina/HD displays: tight 6 MB dynamic TCP window (`autorcvbufmax=6291456`, `recvspace=4194304`, `somaxconn=512`), eliminating memory waste while delivering stutter-free 1080p 60fps streaming.
-8. **TSO Anti-Bufferbloat Control:**
-   * **Gaming Mode (`tso=0`):** Disables TCP segmentation offloading on the Darwin kernel to eliminate packet queuing jitter and micro-stutters.
-   * **Streaming Mode (`tso=1`):** Enables hardware TSO offload for maximum burst throughput.
-
----
-
-## 🛠️ CLI Management Commands
-
-All commands can be executed directly from Mac terminal over Wi-Fi or in NewTerm on iOS:
+The suite includes the standalone `/var/jb/usr/bin/shield_ctl` controller:
 
 ```bash
-# Check current shield status
-ssh ipad "shield_ctl status"
+# Check current active mode
+shield_ctl status
 
-# View current gateway configuration (auto-detected or custom)
-ssh ipad "shield_ctl config show"
+# Start Streaming Mode (Adaptive ACK rate 3, 4MB buffer)
+shield_ctl start streaming
 
-# Reset gateway to automatic detection on any Wi-Fi
-ssh ipad "shield_ctl config auto"
+# Start Gaming Mode (0ms instant ACK, low latency)
+shield_ctl start gaming
 
-# Set a custom Gateway IP and MAC override
-ssh ipad "shield_ctl config set 192.168.1.1 00:11:22:33:44:55"
+# Stop shield and restore stock iOS settings
+shield_ctl stop
 
-# Set or update developer GitHub profile URL
-ssh ipad "shield_ctl config set-github 'https://github.com/NightKnight24'"
+# Clean inactive RAM memory pages
+shield_ctl purge
 
-# Check battery saver status (shows daemons unloaded)
-ssh ipad "shield_ctl battery status"
+# Safe flash cache clean
+shield_ctl clean
 
-# Launch Interactive Live Telemetry HUD (with battery %, router ping & throughput)
-ssh ipad "shield.sh"
-
-# Purge inactive RAM (+500 MB instant reclaim)
-ssh ipad "shield_ctl purge"
-
-# Deep clean flash storage & crash logs (+200+ MB reclaimed)
-ssh ipad "shield_ctl clean"
-
-# Toggle Turbo UI Mode (0ms touch response, bypass GPU blurs)
-ssh ipad "shield_ctl turbo enable"
-ssh ipad "shield_ctl turbo disable"
-ssh ipad "shield_ctl turbo status"
-
-# Enable 24/7 Persistent Daemon (survives app exit & reboots)
-ssh ipad "sudo shield_ctl daemon enable streaming"
+# View or auto-detect gateway configuration
+shield_ctl config show
+shield_ctl config auto
 ```
 
 ---
 
-## 🏗️ Building and Deploying Anti-Lag Shield
+## 📄 License & Credits
 
-From within this project directory:
-
-```bash
-cd AntiLagShield
-./build.sh
-```
+* **Author:** Jordan Allison ([@NightKnight24](https://github.com/NightKnight24))
+* **License:** [MIT License](license.html)
+* **Feedback & Discussions:** Check the [YouTube Video Comments](https://www.youtube.com/@NightKnight24) or open an issue on GitHub!
