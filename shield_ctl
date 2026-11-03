@@ -1,10 +1,9 @@
 #!/bin/sh
 # ==============================================================================
-# 🛡️ Anti-Lag Shield Pro v3.8 Controller (Universal iOS & iPadOS 11 - 18 Edition)
-# Supports ALL 64-bit iOS & iPadOS Devices (Device Revival & Network Sentinel)
+# 🛡️ Anti-Lag Shield Pro v3.9 Controller (Zero-Stutter & Passive Sentinel)
+# High Performance Network Engine for iPadOS & iOS
 # ==============================================================================
 
-# Universal shell bootstrap
 if [ -z "$BASH_VERSION" ]; then
     for b in /var/jb/usr/bin/bash /usr/bin/bash /bin/bash /var/jb/bin/bash; do
         if [ -x "$b" ]; then exec "$b" "$0" "$@"; fi
@@ -22,11 +21,9 @@ export PATH="${JB}/usr/bin:${JB}/bin:${JB}/usr/sbin:${JB}/sbin:/usr/bin:/bin:/us
 CONF_FILE="/var/mobile/Library/Preferences/com.jordan.antilagshield.conf"
 STATE_FILE="/var/mobile/Library/Caches/shield_state.txt"
 PID_FILE="/var/mobile/Library/Caches/shield_watchdog.pid"
-DAEMON_PLIST="${JB}/Library/LaunchDaemons/com.jordan.antilagshield.plist"
 
 ACTION="$1"
 MODE="${2:-streaming}"
-APP_PID="$3"
 
 INTERFACE="en0"
 
@@ -40,9 +37,6 @@ BANDWIDTH_SENTINEL=enabled
 BATTERY_SAVER=enabled
 GITHUB_URL=https://github.com/NightKnight24
 EOF
-        chmod 644 "$CONF_FILE" 2>/dev/null
-    elif ! grep -q "^GITHUB_URL=" "$CONF_FILE" 2>/dev/null; then
-        echo "GITHUB_URL=https://github.com/NightKnight24" >> "$CONF_FILE"
     fi
 }
 
@@ -62,7 +56,9 @@ resolve_gateway() {
     local cfg_ip=$(grep "^GATEWAY_IP=" "$CONF_FILE" 2>/dev/null | cut -d= -f2 | tr -d '[:space:]')
     local cfg_mac=$(grep "^GATEWAY_MAC=" "$CONF_FILE" 2>/dev/null | cut -d= -f2 | tr -d '[:space:]')
 
-    # Detect Gateway IP
+    DETECTED_IFACE=$(route -n get default 2>/dev/null | awk '/interface:/ {print $2}')
+    [ -n "$DETECTED_IFACE" ] && INTERFACE="$DETECTED_IFACE"
+
     if [ -z "$cfg_ip" ] || [ "$cfg_ip" = "auto" ]; then
         ROUTER_IP=$(route -n get default 2>/dev/null | awk '/gateway:/ {print $2}')
         [ -z "$ROUTER_IP" ] && ROUTER_IP="192.168.0.1"
@@ -70,7 +66,6 @@ resolve_gateway() {
         ROUTER_IP="$cfg_ip"
     fi
 
-    # Detect Gateway MAC
     if [ -z "$cfg_mac" ] || [ "$cfg_mac" = "auto" ]; then
         ping -c 1 -W 300 "$ROUTER_IP" >/dev/null 2>&1
         local raw_mac=$(arp -n "$ROUTER_IP" 2>/dev/null | awk '/at/ {for(i=1;i<=NF;i++) if($i=="at") print $(i+1)}')
@@ -82,53 +77,6 @@ resolve_gateway() {
     else
         ROUTER_MAC=$(norm_mac "$cfg_mac")
     fi
-}
-
-# Apple Background Telemetry & Battery-Draining Daemons (Safely queried across all iOS versions)
-BATTERY_HOG_DAEMONS=(
-    "com.apple.tipsd"
-    "com.apple.tailspind"
-    "com.apple.spindump"
-    "com.apple.triald"
-    "com.apple.ap.adprivacyd"
-    "com.apple.parsec-fbf"
-    "com.apple.siriinferenced"
-    "com.apple.duetexpertd"
-    "com.apple.coreduetd"
-    "com.apple.photoanalysisd"
-    "com.apple.mediaanalysisd"
-    "com.apple.cloudphotod"
-)
-
-apply_battery_saver() {
-    for d in "${BATTERY_HOG_DAEMONS[@]}"; do
-        local plist="/System/Library/LaunchDaemons/$d.plist"
-        if [ -f "$plist" ]; then
-            sudo launchctl unload "$plist" >/dev/null 2>&1
-        fi
-    done
-    sudo sysctl -w kern.timer.coalescing_enabled=1 >/dev/null 2>&1
-}
-
-revert_battery_saver() {
-    for d in "${BATTERY_HOG_DAEMONS[@]}"; do
-        local plist="/System/Library/LaunchDaemons/$d.plist"
-        if [ -f "$plist" ]; then
-            sudo launchctl load "$plist" >/dev/null 2>&1
-        fi
-    done
-}
-
-throttle_bandwidth_thieves() {
-    local thieves=("nsurlsessiond" "appstored" "assetsd" "cloudd" "softwareupdated")
-    for t in "${thieves[@]}"; do
-        local pids=$(/bin/ps -A -o pid,comm 2>/dev/null | awk -v pat="$t" '$0 ~ pat && !/(awk|grep|shield)/ {print $1}')
-        for p in $pids; do
-            if [ -n "$p" ] && [ "$p" -gt 1 ]; then
-                sudo renice 10 -p "$p" >/dev/null 2>&1
-            fi
-        done
-    done
 }
 
 purge_inactive_memory() {
@@ -222,10 +170,12 @@ apply_optimizations() {
     local target_mode="$1"
     resolve_gateway
 
-    # 1. Battery Saver & Telemetry Defense
-    apply_battery_saver
+    # 1. Hardware Static ARP Lock (Locks gateway into kernel routing table permanently)
+    if [ -n "$ROUTER_IP" ] && [ -n "$ROUTER_MAC" ]; then
+        sudo arp -s "$ROUTER_IP" "$ROUTER_MAC" ifscope "$INTERFACE" >/dev/null 2>&1
+    fi
 
-    # 2. Wi-Fi Stealth & Anti-Reconnaissance Blackholing
+    # 2. Stealth & Anti-Reconnaissance Blackholing
     sudo sysctl -w net.inet.tcp.blackhole=2 >/dev/null 2>&1
     sudo sysctl -w net.inet.udp.blackhole=1 >/dev/null 2>&1
     sudo sysctl -w net.inet.icmp.drop_redirect=1 >/dev/null 2>&1
@@ -233,70 +183,48 @@ apply_optimizations() {
     sudo sysctl -w net.inet6.icmp6.rediraccept=0 >/dev/null 2>&1
     sudo sysctl -w net.inet.tcp.drop_synfin=1 >/dev/null 2>&1
 
-    # 3. Universal Zero-Trust Hardware Static ARP Lock
-    if [ -n "$ROUTER_IP" ] && [ -n "$ROUTER_MAC" ]; then
-        sudo arp -d "$ROUTER_IP" ifscope "$INTERFACE" >/dev/null 2>&1
-        sudo arp -s "$ROUTER_IP" "$ROUTER_MAC" ifscope "$INTERFACE" >/dev/null 2>&1
-    fi
+    # 3. Disable Enterprise DSCP Wi-Fi tagging on home router (Prevents Wi-Fi packet drops)
+    sudo sysctl -w net.qos.policy.wifi_enabled=0 >/dev/null 2>&1
+    sudo sysctl -w net.qos.policy.capable_enabled=0 >/dev/null 2>&1
+    sudo sysctl -w net.qos.reset_dscp_to_wifi_ac_map=0 >/dev/null 2>&1
 
-    # 4. Throttle background bandwidth thieves (No Wi-Fi theft during games/streams)
-    throttle_bandwidth_thieves
-
-    # 5. Broadcom Wi-Fi WMM / DSCP VIP QoS Fast-Path
-    sudo sysctl -w net.qos.policy.wifi_enabled=1 >/dev/null 2>&1
-    sudo sysctl -w net.qos.policy.capable_enabled=1 >/dev/null 2>&1
-    sudo sysctl -w net.qos.reset_dscp_to_wifi_ac_map=1 >/dev/null 2>&1
-
-    # 6. Disable AWDL / AirDrop scans during session to eliminate micro-stutters
-    sudo ifconfig awdl0 down >/dev/null 2>&1
-    sudo ifconfig llw0 down >/dev/null 2>&1
-
-    # 7. Flush DNS resolver cache
-    sudo killall -HUP mDNSResponder >/dev/null 2>&1
-
-    # 8. Anti-Jetsam Memory Shield & Low-Latency Socket Tuning
-    sudo sysctl -w kern.memorystatus_purge_on_warning=1 >/dev/null 2>&1
-    sudo sysctl -w kern.memorystatus_apps_idle_delay_time=30 >/dev/null 2>&1
+    # 4. Anti-Jetsam Buffer Protection & Socket Tuning
+    sudo sysctl -w kern.memorystatus_purge_on_warning=0 >/dev/null 2>&1
     sudo sysctl -w net.inet.tcp.always_keepalive=1 >/dev/null 2>&1
     sudo sysctl -w net.inet.tcp.keepidle=30000 >/dev/null 2>&1
+    sudo sysctl -w kern.ipc.somaxconn=512 >/dev/null 2>&1
 
-    # 9. Throttle background indexing & storage churn
-    for bg_daemon in corespotlightd knowledgeconstructiond deleted cloudphotod; do
-        BG_PIDS=$(/bin/ps -A -o pid,comm 2>/dev/null | awk -v d="$bg_daemon" '$0 ~ d && !/awk/ {print $1}')
-        for bg_p in $BG_PIDS; do
-            [ -n "$bg_p" ] && sudo renice 15 -p "$bg_p" >/dev/null 2>&1
-        done
-    done
-
-    # 10. Kernel TCP / UDP Buffer & TSO Offload Tuning
+    # 5. Kernel TCP / UDP Buffer & TSO Offload Tuning
     if [ "$target_mode" = "gaming" ]; then
-        # Gaming: Instant ACK (0ms), TSO Off (Anti-Bufferbloat), Tight Buffers, somaxconn=512
+        # Gaming: Instant ACK (0ms), TSO Off (Anti-Bufferbloat), somaxconn=512
         sudo sysctl -w net.inet.tcp.tso=0 >/dev/null 2>&1
         sudo sysctl -w net.inet.tcp.delayed_ack=0 >/dev/null 2>&1
-        sudo sysctl -w net.inet.tcp.sendspace=2097152 >/dev/null 2>&1
-        sudo sysctl -w net.inet.tcp.recvspace=2097152 >/dev/null 2>&1
+        sudo sysctl -w net.inet.tcp.sendspace=131072 >/dev/null 2>&1
+        sudo sysctl -w net.inet.tcp.recvspace=131072 >/dev/null 2>&1
+        sudo sysctl -w net.inet.tcp.autorcvbufmax=2097152 >/dev/null 2>&1
+        sudo sysctl -w net.inet.tcp.autosndbufmax=2097152 >/dev/null 2>&1
+        sudo sysctl -w net.inet.udp.recvspace=1048576 >/dev/null 2>&1
+        sudo sysctl -w net.inet.udp.maxdgram=65535 >/dev/null 2>&1
+    else
+        # Streaming: Adaptive ACK (RFC compliant, no Wi-Fi ACK floods), TSO Burst, 4MB Buffers
+        sudo sysctl -w net.inet.tcp.tso=1 >/dev/null 2>&1
+        sudo sysctl -w net.inet.tcp.delayed_ack=3 >/dev/null 2>&1
+        sudo sysctl -w net.inet.tcp.sendspace=262144 >/dev/null 2>&1
+        sudo sysctl -w net.inet.tcp.recvspace=524288 >/dev/null 2>&1
         sudo sysctl -w net.inet.tcp.autorcvbufmax=4194304 >/dev/null 2>&1
         sudo sysctl -w net.inet.tcp.autosndbufmax=4194304 >/dev/null 2>&1
         sudo sysctl -w net.inet.udp.recvspace=2097152 >/dev/null 2>&1
         sudo sysctl -w net.inet.udp.maxdgram=65535 >/dev/null 2>&1
-        sudo sysctl -w kern.ipc.somaxconn=512 >/dev/null 2>&1
-    else
-        # Streaming: TSO Burst, 6MB Retina Dynamic Buffer, somaxconn=512, Stremio VIP
-        sudo sysctl -w net.inet.tcp.tso=1 >/dev/null 2>&1
-        sudo sysctl -w net.inet.tcp.delayed_ack=2 >/dev/null 2>&1
-        sudo sysctl -w net.inet.tcp.sendspace=2097152 >/dev/null 2>&1
-        sudo sysctl -w net.inet.tcp.recvspace=4194304 >/dev/null 2>&1
-        sudo sysctl -w net.inet.tcp.autorcvbufmax=6291456 >/dev/null 2>&1
-        sudo sysctl -w net.inet.tcp.autosndbufmax=6291456 >/dev/null 2>&1
-        sudo sysctl -w net.inet.udp.recvspace=4194304 >/dev/null 2>&1
-        sudo sysctl -w net.inet.udp.maxdgram=65535 >/dev/null 2>&1
-        sudo sysctl -w kern.ipc.somaxconn=512 >/dev/null 2>&1
     fi
 
-    # 10. Reclaim Inactive Memory (RAM Purge)
-    purge_inactive_memory
-
-    # 11. Hardware Media & Audio Decoder Boost
+    # 6. Prioritize current running media / gaming VIPs once (no polling loop!)
+    VIP_PATTERN="(Stremio|NodeMobile|stremio-runtime|stremio-service|ffmpeg|YouTube|PrimeVideo|Netflix|Disney|Twitch|Infuse|VLC|Kodi|Plex|Roblox|PojavLauncher|Minecraft|Delta|RetroArch|PPSSPP|Moonlight|GeForceNOW|SteamLink)"
+    APP_PIDS=$(/bin/ps -A -o pid,command 2>/dev/null | awk -v pat="$VIP_PATTERN" '$0 ~ pat && !/(awk|grep|shield)/ {print $1}')
+    for p in $APP_PIDS; do
+        if [ -n "$p" ] && [ "$p" -gt 1 ]; then
+            sudo renice -10 -p "$p" >/dev/null 2>&1
+        fi
+    done
     MS_PID=$(/bin/ps -A -o pid,comm 2>/dev/null | awk '/mediaserverd/ && !/awk/ {print $1}')
     if [ -n "$MS_PID" ]; then
         sudo renice -10 -p "$MS_PID" >/dev/null 2>&1
@@ -316,27 +244,15 @@ revert_optimizations() {
     sudo sysctl -w net.inet.icmp.drop_redirect=0 >/dev/null 2>&1
     sudo sysctl -w net.inet.ip.redirect=1 >/dev/null 2>&1
     sudo sysctl -w kern.ipc.somaxconn=128 >/dev/null 2>&1
-
+    sudo sysctl -w kern.memorystatus_purge_on_warning=0 >/dev/null 2>&1
     sudo sysctl -w net.qos.policy.wifi_enabled=0 >/dev/null 2>&1
     sudo sysctl -w net.qos.policy.capable_enabled=0 >/dev/null 2>&1
     sudo sysctl -w net.qos.reset_dscp_to_wifi_ac_map=0 >/dev/null 2>&1
-
-    sudo ifconfig awdl0 up >/dev/null 2>&1
-    sudo ifconfig llw0 up >/dev/null 2>&1
-
-    for bg_daemon in corespotlightd knowledgeconstructiond deleted cloudphotod nsurlsessiond appstored assetsd cloudd; do
-        BG_PIDS=$(/bin/ps -A -o pid,comm 2>/dev/null | awk -v d="$bg_daemon" '$0 ~ d && !/awk/ {print $1}')
-        for bg_p in $BG_PIDS; do
-            [ -n "$bg_p" ] && sudo renice 0 -p "$bg_p" >/dev/null 2>&1
-        done
-    done
 
     MS_PID=$(/bin/ps -A -o pid,comm 2>/dev/null | awk '/mediaserverd/ && !/awk/ {print $1}')
     if [ -n "$MS_PID" ]; then
         sudo renice 0 -p "$MS_PID" >/dev/null 2>&1
     fi
-
-    revert_battery_saver
 }
 
 SHIELD_EXEC="${JB}/usr/bin/shield_ctl"
@@ -346,114 +262,16 @@ BASH_EXEC="${JB}/usr/bin/bash"
 [ ! -x "$BASH_EXEC" ] && BASH_EXEC="bash"
 
 case "$ACTION" in
-    start)
-        if [ -f "$PID_FILE" ]; then
-            OLD_WPID=$(cat "$PID_FILE" 2>/dev/null)
-            [ -n "$OLD_WPID" ] && kill "$OLD_WPID" 2>/dev/null
-            rm -f "$PID_FILE"
-        fi
-        for p in $(/bin/ps -A -o pid,command 2>/dev/null | awk '/shield_ctl _watchdog/ && !/awk/ {print $1}'); do
-            kill "$p" 2>/dev/null
-        done
-
+    start|start_daemon)
         apply_optimizations "$MODE"
-
-        mkdir -p /var/mobile/Library/Caches
-        echo "ACTIVE:$MODE:$APP_PID" > "$STATE_FILE"
-
-        nohup "$BASH_EXEC" "$SHIELD_EXEC" _watchdog "$APP_PID" "$ROUTER_IP" "$INTERFACE" "$ROUTER_MAC" >/dev/null 2>&1 &
-        echo $! > "$PID_FILE"
-
+        mkdir -p /var/mobile/Library/Caches 2>/dev/null
+        echo "ACTIVE:$MODE" > "$STATE_FILE"
         echo "SHIELD_STARTED:$MODE"
         ;;
 
-    start_daemon)
-        apply_optimizations "$MODE"
-
-        mkdir -p /var/mobile/Library/Caches
-        echo "ACTIVE:$MODE:DAEMON" > "$STATE_FILE"
-
-        exec "$BASH_EXEC" "$SHIELD_EXEC" _watchdog "DAEMON" "$ROUTER_IP" "$INTERFACE" "$ROUTER_MAC"
-        ;;
-
-    _watchdog)
-        TARGET_PID="$2"
-        ROUTER="$3"
-        IFACE="$4"
-        GATEWAY_MAC_AUTH="$5"
-
-        VIP_PATTERN="(Stremio|NodeMobile|stremio-runtime|stremio-service|ffmpeg|YouTube|PrimeVideo|Dominguez|Argo|Max-iOS|Netflix|Disney|Twitch|Infuse|VLC|Kodi|Plex|Roblox|PojavLauncher|Minecraft|Flycast|Delta|RetroArch|PPSSPP|Provenance|Moonlight|Sunshine|GeForceNOW|Chiaki|SteamLink|Shadow|Discord|gamecontrollerd|bluetoothd)"
-
-        LOOP_COUNT=0
-        while true; do
-            if [ "$TARGET_PID" != "DAEMON" ] && [ -n "$TARGET_PID" ] && [ "$TARGET_PID" -gt 1 ]; then
-                if ! kill -0 "$TARGET_PID" 2>/dev/null; then
-                    break
-                fi
-            fi
-
-            # 1. Zero-Trust Anti-Spoof Sentinel: Re-lock gateway if poisoned or altered
-            if [ -n "$ROUTER" ] && [ -n "$GATEWAY_MAC_AUTH" ]; then
-                ARP_ENTRY=$(arp -n "$ROUTER" 2>/dev/null | tr "[:upper:]" "[:lower:]")
-                CURRENT_RAW_MAC=$(echo "$ARP_ENTRY" | awk '/at/ {for(i=1;i<=NF;i++) if($i=="at") print $(i+1)}')
-                CURRENT_NORM_MAC=$(norm_mac "$CURRENT_RAW_MAC")
-                if [[ "$CURRENT_NORM_MAC" != "$GATEWAY_MAC_AUTH" ]] || [[ "$ARP_ENTRY" != *"permanent"* ]] || [[ "$ARP_ENTRY" == *"no entry"* ]]; then
-                    sudo arp -d "$ROUTER" ifscope "$IFACE" >/dev/null 2>&1
-                    sudo arp -s "$ROUTER" "$GATEWAY_MAC_AUTH" ifscope "$IFACE" >/dev/null 2>&1
-                fi
-            fi
-
-            # 2. Throttle background bandwidth thieves (nsurlsessiond, appstored, etc.)
-            throttle_bandwidth_thieves
-
-            # 3. Auto-Renice all streaming, gaming & Stremio VIP processes to -20
-            APP_PIDS=$(/bin/ps -A -o pid,command 2>/dev/null | awk -v pat="$VIP_PATTERN" '$0 ~ pat && !/(awk|grep|shield)/ {print $1}')
-            for p in $APP_PIDS; do
-                if [ -n "$p" ] && [ "$p" -gt 1 ]; then
-                    sudo renice -20 -p "$p" >/dev/null 2>&1
-                fi
-            done
-
-            # 4. Keep mediaserverd and Bluetooth Game Controllers prioritized
-            MS_PID=$(/bin/ps -A -o pid,comm 2>/dev/null | awk '/mediaserverd/ && !/awk/ {print $1}')
-            if [ -n "$MS_PID" ]; then
-                sudo renice -10 -p "$MS_PID" >/dev/null 2>&1
-            fi
-            for ctrl_proc in gamecontrollerd bluetoothd; do
-                CPID=$(/bin/ps -A -o pid,comm 2>/dev/null | awk -v c="$ctrl_proc" '$0 ~ c && !/awk/ {print $1}')
-                if [ -n "$CPID" ]; then
-                    sudo renice -15 -p "$CPID" >/dev/null 2>&1
-                fi
-            done
-
-            # Periodic memory refresh every ~2 minutes
-            LOOP_COUNT=$((LOOP_COUNT + 1))
-            if [ $LOOP_COUNT -ge 40 ]; then
-                purge_inactive_memory
-                LOOP_COUNT=0
-            fi
-
-            sleep 3
-        done
-
-        if [ "$TARGET_PID" != "DAEMON" ]; then
-            "$SHIELD_EXEC" stop
-        fi
-        ;;
-
     stop)
-        if [ -f "$PID_FILE" ]; then
-            WPID=$(cat "$PID_FILE" 2>/dev/null)
-            [ -n "$WPID" ] && kill "$WPID" 2>/dev/null
-            rm -f "$PID_FILE"
-        fi
-        for p in $(/bin/ps -A -o pid,command 2>/dev/null | awk '/shield_ctl _watchdog/ && !/awk/ {print $1}'); do
-            kill "$p" 2>/dev/null
-        done
-
         revert_optimizations
-
-        rm -f "$STATE_FILE"
+        rm -f "$STATE_FILE" 2>/dev/null
         echo "SHIELD_STOPPED"
         ;;
 
@@ -473,29 +291,6 @@ case "$ACTION" in
     stremio_status)
         STREAM_COUNT=$(netstat -an 2>/dev/null | awk '/11470/ && /ESTABLISHED/ {count++} END {print count+0}')
         echo "STREMIO_STREAMS:$STREAM_COUNT"
-        ;;
-
-    battery)
-        SUB="$2"
-        case "$SUB" in
-            enable)
-                apply_battery_saver
-                echo "BATTERY_SAVER_ENABLED"
-                ;;
-            disable)
-                revert_battery_saver
-                echo "BATTERY_SAVER_DISABLED"
-                ;;
-            status)
-                UNLOADED=0
-                for d in "${BATTERY_HOG_DAEMONS[@]}"; do
-                    if ! launchctl list 2>/dev/null | grep -q "$d"; then
-                        UNLOADED=$((UNLOADED + 1))
-                    fi
-                done
-                echo "BATTERY_SAVER_ACTIVE:$UNLOADED/${#BATTERY_HOG_DAEMONS[@]}"
-                ;;
-        esac
         ;;
 
     config)
@@ -559,6 +354,39 @@ EOF
         esac
         ;;
 
+    status)
+        if [ -f "$STATE_FILE" ]; then
+            cat "$STATE_FILE"
+        else
+            echo "INACTIVE"
+        fi
+        ;;
+
+    daemon)
+        SUB="$2"
+        case "$SUB" in
+            status)
+                if [ -f "$STATE_FILE" ]; then
+                    echo "DAEMON_ACTIVE"
+                else
+                    echo "DAEMON_INACTIVE"
+                fi
+                ;;
+            enable)
+                D_MODE="${3:-streaming}"
+                apply_optimizations "$D_MODE"
+                mkdir -p /var/mobile/Library/Caches 2>/dev/null
+                echo "ACTIVE:$D_MODE" > "$STATE_FILE"
+                echo "DAEMON_ENABLED:$D_MODE"
+                ;;
+            disable)
+                revert_optimizations
+                rm -f "$STATE_FILE" 2>/dev/null
+                echo "DAEMON_DISABLED"
+                ;;
+        esac
+        ;;
+
     run|hud|interactive)
         RUN_MODE="${2:-streaming}"
         apply_optimizations "$RUN_MODE"
@@ -585,13 +413,6 @@ C_RED = '\033[0;31m'
 C_CYAN = '\033[1;36m'
 C_MAGENTA = '\033[1;35m'
 C_GRAY = '\033[0;37m'
-
-targets = [
-    "Stremio", "NodeMobile", "node", "ffmpeg", "YouTube", "Netflix", "PrimeVideo",
-    "Disney", "Twitch", "Infuse", "VLC", "Kodi", "Plex", "Roblox", "Minecraft",
-    "Delta", "RetroArch", "PPSSPP", "Moonlight", "GeForceNOW", "Chiaki", "Discord",
-    "gamecontrollerd", "bluetoothd"
-]
 
 mode_tag = "\033[1;32m🎮 GAMING (TSO:Off)\033[0m" if mode == "gaming" else "\033[1;35m🎬 STREAMING (Retina HD)\033[0m"
 
@@ -637,184 +458,37 @@ def col_ping(ms):
     if ms < 15.0: return f"{C_YELLOW}{ms:.1f}ms{C_RESET}"
     return f"{C_RED}{ms:.1f}ms{C_RESET}"
 
-def check_stremio_clients():
-    try:
-        out = subprocess.check_output(['netstat', '-an'], stderr=subprocess.DEVNULL).decode()
-        return sum(1 for l in out.splitlines() if '11470' in l and 'ESTABLISHED' in l)
-    except:
-        return 0
-
-def find_active_apps():
-    active = []
-    try:
-        out = subprocess.check_output(['/bin/ps', '-A', '-o', 'pid,command'], stderr=subprocess.DEVNULL).decode()
-        for line in out.splitlines():
-            for t in targets:
-                if t.lower() in line.lower() and not any(x in line.lower() for x in ['grep', 'awk', 'shield']):
-                    if t not in active:
-                        active.append(t)
-                        pid = line.split()[0]
-                        subprocess.call(['sudo', 'renice', '-20', '-p', pid], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except:
-        pass
-    return active
-
-def check_and_relock_arp(router_ip, auth_mac):
-    if not auth_mac or auth_mac == "auto": return True
-    try:
-        out = subprocess.check_output(['arp', '-n', router_ip], stderr=subprocess.DEVNULL).decode()
-        cur_mac = ""
-        parts = out.split()
-        if 'at' in parts:
-            idx = parts.index('at')
-            if idx + 1 < len(parts):
-                raw = parts[idx + 1]
-                cur_mac = ":".join(f"{int(x, 16):02x}" for x in raw.split(":"))
-        if cur_mac != auth_mac or "permanent" not in out:
-            subprocess.call(['sudo', 'arp', '-d', router_ip, 'ifscope', 'en0'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            subprocess.call(['sudo', 'arp', '-s', router_ip, auth_mac, 'ifscope', 'en0'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            return False
-    except:
-        pass
-    return True
-
-prev_ib, prev_ob = get_bytes()
-prev_t = time.time()
-loop = 0
-r_ms, i_ms = None, None
-bat_str = get_battery()
-spoof_blocks = 0
-
-print(f"\n{C_CYAN}🛡️   Anti-Lag Shield Pro v3.7 (Universal Network Sentinel)   🛡️{C_RESET}")
-print(f"{C_GREEN}[✔] Auto-Detected Gateway: {router_ip} ({router_mac}) [Permanently Locked]{C_RESET}")
-print(f"{C_GREEN}[✔] Bandwidth Thief Shield & Battery Saver: ACTIVE{C_RESET}\n")
+print(f"{C_BRIGHT_GREEN}Anti-Lag Shield Pro Active [{mode_tag}] (Press Ctrl+C to stop)...{C_RESET}")
+last_rx, last_tx = get_bytes()
+last_time = time.time()
 
 try:
     while True:
         time.sleep(1.0)
-        now_t = time.time()
-        loop += 1
-        cur_ib, cur_ob = get_bytes()
-        dt = now_t - prev_t
-        rx = int((cur_ib - prev_ib) / dt) if dt > 0 and cur_ib >= prev_ib else 0
-        tx = int((cur_ob - prev_ob) / dt) if dt > 0 and cur_ob >= prev_ob else 0
-        prev_ib, prev_ob, prev_t = cur_ib, cur_ob, now_t
+        now = time.time()
+        dt = max(now - last_time, 0.1)
+        rx, tx = get_bytes()
+        down = fmt(max(0, (rx - last_rx) / dt))
+        up = fmt(max(0, (tx - last_tx) / dt))
+        last_rx, last_tx = rx, tx
+        last_time = now
 
-        if loop % 2 == 0 or r_ms is None:
-            r_ms = ping(router_ip, 350)
-            i_ms = ping("1.1.1.1", 400)
-            
-        if loop % 3 == 0:
-            if not check_and_relock_arp(router_ip, router_mac):
-                spoof_blocks += 1
-
-        if loop % 15 == 0:
-            bat_str = get_battery()
-
-        active = find_active_apps()
-        stremio_streams = check_stremio_clients()
-
-        ts = time.strftime('%H:%M:%S')
+        r_ms = ping(router_ip, 250)
+        i_ms = ping("1.1.1.1", 350)
         r_str = col_ping(r_ms)
         i_str = col_ping(i_ms)
-        down = f"{C_CYAN}↓ {fmt(rx)}{C_RESET}"
-        up = f"{C_MAGENTA}↑ {fmt(tx)}{C_RESET}"
+        bat_str = get_battery()
+        ts = time.strftime("%H:%M:%S")
 
-        if active:
-            stremio_tag = f" [Serving Stream]" if stremio_streams > 0 else ""
-            app_str = f"{C_BRIGHT_GREEN}🚀 {' + '.join(active[:2])}{stremio_tag} (VIP -20){C_RESET}"
-        else:
-            app_str = f"{C_GRAY}Sentinel Active{C_RESET}"
-
-        sentinel_tag = f"{C_YELLOW}🛡️ Spoof Blocked ({spoof_blocks}x){C_RESET}" if spoof_blocks > 0 else f"{C_GREEN}🛡️ Gateway Guarded{C_RESET}"
-
-        print(f"[{ts}] {mode_tag} | 📶 Wi-Fi (en0) | Router: {r_str} | Ping: {i_str} | 🔋 {bat_str} | {down} | {up} | {app_str} | {sentinel_tag}")
+        print(f"[{ts}] {mode_tag} | 📶 Wi-Fi | Router: {r_str} | Ping: {i_str} | 🔋 {bat_str} | ↓ {down} | ↑ {up}")
         sys.stdout.flush()
 except KeyboardInterrupt:
     pass
 PY_CLI_END
         ;;
 
-    daemon)
-        SUB="$2"
-        case "$SUB" in
-            enable)
-                D_MODE="${3:-streaming}"
-                echo "ACTIVE:$D_MODE:DAEMON" > "$STATE_FILE"
-                mkdir -p "$(dirname "$DAEMON_PLIST")"
-                cat <<EOF | sudo tee "$DAEMON_PLIST" >/dev/null
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-	<key>Label</key>
-	<string>com.jordan.antilagshield</string>
-	<key>ProgramArguments</key>
-	<array>
-		<string>$BASH_EXEC</string>
-		<string>$SHIELD_EXEC</string>
-		<string>start_daemon</string>
-		<string>$D_MODE</string>
-	</array>
-	<key>RunAtLoad</key>
-	<true/>
-	<key>KeepAlive</key>
-	<true/>
-	<key>ThrottleInterval</key>
-	<integer>5</integer>
-	<key>StandardOutPath</key>
-	<string>/dev/null</string>
-	<key>StandardErrorPath</key>
-	<string>/dev/null</string>
-</dict>
-</plist>
-EOF
-                sudo chmod 644 "$DAEMON_PLIST"
-                sudo launchctl load -w "$DAEMON_PLIST" >/dev/null 2>&1
-                echo "DAEMON_ENABLED:$D_MODE"
-                ;;
-
-            disable)
-                if [ -f "$DAEMON_PLIST" ]; then
-                    sudo launchctl unload -w "$DAEMON_PLIST" >/dev/null 2>&1
-                    sudo rm -f "$DAEMON_PLIST"
-                fi
-                "$SHIELD_EXEC" stop >/dev/null 2>&1
-                echo "DAEMON_DISABLED"
-                ;;
-
-            status)
-                if [ -f "$DAEMON_PLIST" ]; then
-                    echo "DAEMON_ACTIVE"
-                else
-                    echo "DAEMON_INACTIVE"
-                fi
-                ;;
-        esac
-        ;;
-
-    status)
-        if [ -f "$STATE_FILE" ]; then
-            SAVED_PID=$(awk -F: '{print $3}' "$STATE_FILE" 2>/dev/null)
-            if [ "$SAVED_PID" = "DAEMON" ]; then
-                cat "$STATE_FILE"
-            elif [ -n "$SAVED_PID" ] && [ "$SAVED_PID" -gt 1 ]; then
-                if kill -0 "$SAVED_PID" 2>/dev/null; then
-                    cat "$STATE_FILE"
-                else
-                    "$SHIELD_EXEC" stop >/dev/null 2>&1
-                    echo "INACTIVE"
-                fi
-            else
-                cat "$STATE_FILE"
-            fi
-        else
-            echo "INACTIVE"
-        fi
-        ;;
-
     *)
-        echo "Usage: $0 {start [mode] [pid]|start_daemon [mode]|stop|status|purge|clean|turbo [enable|disable|status]|stremio_status|battery [enable|disable|status]|config [show|set <ip> <mac>|auto]|run [mode]|daemon [enable|disable|status]}"
+        echo "Usage: $0 {start [mode]|stop|status|purge|clean|turbo [enable|disable|status]|stremio_status|config [show|set <ip> <mac>|auto]|run [mode]|daemon [enable|disable|status]}"
         exit 1
         ;;
 esac

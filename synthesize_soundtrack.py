@@ -205,7 +205,7 @@ VOICE_SCRIPT = [
     (4, 24.6, "The one-tap storage cleaner purges over a thousand stale diagnostic logs, restoring peak NAND read-write speeds."),
     (5, 32.6, "Zero-Trust Sentinel locks your router in the Darwin kernel, blocking rogue ARP attacks with dynamic Retina TCP buffers."),
     (6, 40.6, "Bluetooth Gamepad Acceleration eliminates antenna interference and boosts game controllers to Real-Time VIP priority."),
-    (7, 48.6, "Available now on Sileo, Zebra, TrollStore, and Havoc. Free and open source on GitHub by NightKnight24.")
+    (7, 48.6, "Available now on Sileo, Zebra, and TrollStore. Free and open source on GitHub by NightKnight24.")
 ]
 
 voice_L = np.zeros(NUM_SAMPLES, dtype=np.float32)

@@ -3,12 +3,12 @@ Label: NightKnight24
 Suite: stable
 Version: 1.0
 Codename: ios
-Architectures: iphoneos-arm iphoneos-arm64
+Architectures: iphoneos-arm64
 Components: main
-Description: Official repository for Anti-Lag Shield Pro & NightKnight Projects.
+Description: Official repository for Anti-Lag Shield & NightKnight Projects.
 MD5Sum:
- 2f752188c5ce97e041e0599607145a24 1171 Packages
- 458a5af6ad6f96194b7ab0f69cad52a8 552 Packages.gz
+ 946ec43f573c77a1eebeea72455745b6 640 Packages
+ f68d018d81093c0bbd386e8ac3b2ad1a 449 Packages.gz
 SHA256:
- cf1478ce9099c8ca3b17f238239d2cd513352976aca48ea20351196630d12670 1171 Packages
- 84cfe9e640aa2883ba97af8b3805ef258943a3c5f72447acde866715857c1060 552 Packages.gz
+ ded4d06c36d04168919ea0cc13eaf7a6eaca0655bdbfb4c041119b6b0138cf64 640 Packages
+ 37701f02ec428292580f387c5acbf85474b72b2250298c9f44cdd9759d634518 449 Packages.gz

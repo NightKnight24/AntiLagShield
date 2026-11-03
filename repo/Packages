@@ -1,32 +1,15 @@
 Package: com.nightknight.antilagshield
-Name: Anti-Lag Shield Pro
-Version: 3.8
-Architecture: iphoneos-arm
-Description: Universal Network Sentinel & Device Revival suite for iOS & iPadOS.
-Maintainer: NightKnight <nightknight24@users.noreply.github.com>
-Author: NightKnight24
-Section: Utilities
-Depends: bash, sudo
-Icon: https://nightknight24.github.io/repo/icon.png
-Filename: debs/AntiLagShield_v3.8_rootful.deb
-Size: 90016
-MD5sum: f46fd9abfd8203b1878f334acce14330
-SHA1: 73bb6b20608a16c072ffb1a929c704b75ca6a7ef
-SHA256: 454c176bb48c4fad6e9507e72b657aeb71eeee8ab15f486ea6874863b752cfac
-
-Package: com.nightknight.antilagshield
-Name: Anti-Lag Shield Pro
-Version: 3.8
+Name: Anti-Lag Shield
+Version: 1.0.0
 Architecture: iphoneos-arm64
-Description: Universal Network Sentinel & Device Revival suite for iOS & iPadOS.
-Maintainer: NightKnight <nightknight24@users.noreply.github.com>
-Author: NightKnight24
-Section: Utilities
-Depends: bash, sudo
+Description: Network buffer and latency tuning suite with Control Center, Banner, and Shortcut toggles.
+Maintainer: Jordan Allison <nightknight24@users.noreply.github.com>
+Author: Jordan Allison
+Section: System
+Depends: firmware (>= 12.0)
 Icon: https://nightknight24.github.io/repo/icon.png
-Filename: debs/AntiLagShield_v3.8_rootless.deb
-Size: 90118
-MD5sum: b983cd959ab1aa7da7f1d5eee4f22ce4
-SHA1: 355ec1530b896a0d8062f7bce9127bc9e1fe65bb
-SHA256: 3beb7f9bcf233f038d70fb4bd96e6c5b00db5c592bda877e16281e171960c443
-
+Filename: debs/com.nightknight.antilagshield_1.0.0_iphoneos-arm64.deb
+Size: 113720
+MD5sum: 9b073514003cb0a19b801f564539fdd5
+SHA1: 3c8d415151ec4e1a7f6fcf7e65240ea40b81df96
+SHA256: 39daf7e63dc131e7807214249a080042d4fead025d5b864403b3e7debeaf6203

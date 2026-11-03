@@ -1,3 +1,4 @@
+#import <UserNotifications/UserNotifications.h>
 #import <UIKit/UIKit.h>
 #import <unistd.h>
 #import <sys/types.h>
@@ -70,6 +71,11 @@ static NSUInteger get_free_memory_mb(void) {
     return mem_free / (1024 * 1024);
 }
 
+@interface AppDelegate : UIResponder <UIApplicationDelegate, UNUserNotificationCenterDelegate>
+@property (strong, nonatomic) UIWindow *window;
++ (void)updateNotificationBannerWithMode:(NSString *)mode;
+@end
+
 @interface ShieldViewController : UIViewController
 
 @property (nonatomic, strong) UIScrollView *scrollView;
@@ -139,6 +145,7 @@ static NSUInteger get_free_memory_mb(void) {
 @property (nonatomic, strong) UILabel *footerLabel;
 
 @property (nonatomic, strong) NSTimer *telemetryTimer;
+- (void)captureLiveScreenshotPath:(NSString *)path scrollOffset:(CGFloat)offset;
 
 @end
 
@@ -156,6 +163,7 @@ static NSUInteger get_free_memory_mb(void) {
     self.scrollView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     self.scrollView.alwaysBounceVertical = YES;
     [self.view addSubview:self.scrollView];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(handleExternalModeChange:) name:@"ShieldModeChangedExternally" object:nil];
     
     // Header
     self.iconLabel = [[UILabel alloc] init];
@@ -165,7 +173,7 @@ static NSUInteger get_free_memory_mb(void) {
     [self.scrollView addSubview:self.iconLabel];
     
     self.titleLabel = [[UILabel alloc] init];
-    self.titleLabel.text = @"Anti-Lag Shield Pro v3.8";
+    self.titleLabel.text = @"Anti-Lag Shield";
     self.titleLabel.font = [UIFont boldSystemFontOfSize:24];
     self.titleLabel.textColor = [UIColor whiteColor];
     self.titleLabel.textAlignment = NSTextAlignmentCenter;
@@ -174,7 +182,7 @@ static NSUInteger get_free_memory_mb(void) {
     [self.scrollView addSubview:self.titleLabel];
 
     self.subLabel = [[UILabel alloc] init];
-    self.subLabel.text = @"Device Revival • Universal Gateway Sentinel • Battery Saver";
+    self.subLabel.text = @"Network Latency & TCP Buffer Optimizer for iPadOS";
     self.subLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
     self.subLabel.textColor = [UIColor colorWithRed:0.0 green:0.82 blue:0.95 alpha:0.9];
     self.subLabel.textAlignment = NSTextAlignmentCenter;
@@ -294,7 +302,7 @@ static NSUInteger get_free_memory_mb(void) {
     [self.scrollView addSubview:self.revivalCard];
     
     self.revivalTitle = [[UILabel alloc] init];
-    self.revivalTitle.text = @"⚡ DEVICE REVIVAL & HARDWARE ACCELERATION";
+    self.revivalTitle.text = @"⚡ HARDWARE ACCELERATION & STORAGE";
     self.revivalTitle.font = [UIFont systemFontOfSize:11 weight:UIFontWeightBold];
     self.revivalTitle.textColor = [UIColor colorWithRed:0.0 green:0.85 blue:1.0 alpha:1.0];
     self.revivalTitle.adjustsFontSizeToFitWidth = YES;
@@ -328,7 +336,7 @@ static NSUInteger get_free_memory_mb(void) {
     [self.revivalCard addSubview:self.turboSwitch];
     
     self.cleanStorageButton = [UIButton buttonWithType:UIButtonTypeSystem];
-    [self.cleanStorageButton setTitle:@"🧹 Deep Clean Flash Storage & Logs (+200+ MB)" forState:UIControlStateNormal];
+    [self.cleanStorageButton setTitle:@"🧹 Deep Clean Flash Storage & Stale Caches" forState:UIControlStateNormal];
     self.cleanStorageButton.titleLabel.font = [UIFont boldSystemFontOfSize:13];
     self.cleanStorageButton.titleLabel.adjustsFontSizeToFitWidth = YES;
     self.cleanStorageButton.titleLabel.minimumScaleFactor = 0.75;
@@ -381,13 +389,13 @@ static NSUInteger get_free_memory_mb(void) {
     self.defTLabels = [NSMutableArray array];
     self.defVLabels = [NSMutableArray array];
     NSArray *rows = @[
-        @{@"t": @"Zero-Trust Gateway Lock", @"v": @"Auto-Detecting on Wi-Fi..."},
-        @{@"t": @"Universal Anti-Spoof Sentinel", @"v": @"Rogue ARP Hijacks & Poisoning Defense Active"},
-        @{@"t": @"Bandwidth Thief Sentinel", @"v": @"Active (Background App Store & iCloud Downloads Throttled)"},
-        @{@"t": @"Battery & Telemetry Shield", @"v": @"12 Apple AI, Vision & Diagnostics Daemons Halted (Deep Sleep)"},
-        @{@"t": @"Stremio Web Server VIP", @"v": @"Port 11470 • NodeMobile & MediaServer (-20)"},
-        @{@"t": @"TSO Anti-Bufferbloat Control", @"v": @"TSO Enabled (Retina Throughput)"},
-        @{@"t": @"TCP / UDP Buffer Tuning", @"v": @"6 MB Retina HD Buffer (somaxconn: 512)"}
+        @{@"t": @"Gateway Static ARP", @"v": @"Resolving Gateway on en0..."},
+        @{@"t": @"TCP Delayed ACK Rate", @"v": @"Adaptive RFC 5681 (Standard)"},
+        @{@"t": @"TCP Segmentation Offload (TSO)", @"v": @"Hardware TSO Enabled"},
+        @{@"t": @"Receive & Send Socket Buffers", @"v": @"4 MB Dynamic Buffer"},
+        @{@"t": @"Connection Queue Backlog", @"v": @"somaxconn: 512 Sockets"},
+        @{@"t": @"Kernel Memory Eviction", @"v": @"Protected (purge_on_warning=0)"},
+        @{@"t": @"Wi-Fi QoS Packet Handling", @"v": @"Standard WMM Fast-Path"}
     ];
     
     for (NSDictionary *r in rows) {
@@ -434,7 +442,7 @@ static NSUInteger get_free_memory_mb(void) {
     [self.scrollView addSubview:self.vipCard];
     
     self.vipTitle = [[UILabel alloc] init];
-    self.vipTitle.text = @"VIP REAL-TIME PROCESS SCHEDULER (nice -20)";
+    self.vipTitle.text = @"MEDIA & STREAMING PRIORITY (renice -10)";
     self.vipTitle.font = [UIFont systemFontOfSize:11 weight:UIFontWeightBold];
     self.vipTitle.textColor = [UIColor colorWithWhite:0.5 alpha:1.0];
     self.vipTitle.adjustsFontSizeToFitWidth = YES;
@@ -451,7 +459,7 @@ static NSUInteger get_free_memory_mb(void) {
     [self.vipCard addSubview:self.vipList];
     
     self.vipSub = [[UILabel alloc] init];
-    self.vipSub.text = @"✓ Background watchdog auto-boosts apps & gamepads for zero input lag.";
+    self.vipSub.text = @"✓ MediaServer and active streaming/gaming processes elevated to high priority.";
     self.vipSub.font = [UIFont systemFontOfSize:11 weight:UIFontWeightRegular];
     self.vipSub.textColor = [UIColor colorWithRed:0.3 green:0.85 blue:0.45 alpha:0.9];
     self.vipSub.adjustsFontSizeToFitWidth = YES;
@@ -467,7 +475,7 @@ static NSUInteger get_free_memory_mb(void) {
     [self.scrollView addSubview:self.daemonCard];
     
     self.dTitle = [[UILabel alloc] init];
-    self.dTitle.text = @"24/7 Always-On Background Daemon";
+    self.dTitle.text = @"🔔 Notification Bar Quick-Toggle & Sentinel";
     self.dTitle.font = [UIFont systemFontOfSize:14 weight:UIFontWeightBold];
     self.dTitle.textColor = [UIColor whiteColor];
     self.dTitle.adjustsFontSizeToFitWidth = YES;
@@ -475,7 +483,7 @@ static NSUInteger get_free_memory_mb(void) {
     [self.daemonCard addSubview:self.dTitle];
     
     self.daemonStatusLabel = [[UILabel alloc] init];
-    self.daemonStatusLabel.text = @"Off: Shield active in App Switcher; reverts when swiped away.";
+    self.daemonStatusLabel.text = @"Pull down or hold banner in Notification Bar: Streaming • Gaming • Off directly.";
     self.daemonStatusLabel.numberOfLines = 2;
     self.daemonStatusLabel.font = [UIFont systemFontOfSize:11 weight:UIFontWeightMedium];
     self.daemonStatusLabel.textColor = [UIColor colorWithWhite:0.6 alpha:1.0];
@@ -710,14 +718,21 @@ static NSUInteger get_free_memory_mb(void) {
 }
 
 - (void)modeChanged:(UISegmentedControl *)sender {
+    NSString *mode = (sender.selectedSegmentIndex == 0) ? @"streaming" : @"gaming";
     if (sender.selectedSegmentIndex == 0) {
         self.tsoLabel.text = @"TSO Enabled (Retina Throughput)";
         self.tsoLabel.textColor = [UIColor colorWithRed:0.2 green:0.8 blue:1.0 alpha:1.0];
-        self.bufferLabel.text = @"6 MB Retina HD Buffer (somaxconn: 512)";
+        self.bufferLabel.text = @"4 MB Smooth Buffer (Adaptive Delayed ACK)";
+        self.statusBadge.text = @"●  STREAMING SENTINEL ACTIVE";
+        self.statusBadge.textColor = [UIColor colorWithRed:0.2 green:0.95 blue:0.4 alpha:1.0];
+        self.statusBadge.backgroundColor = [UIColor colorWithRed:0.06 green:0.22 blue:0.12 alpha:0.9];
     } else {
         self.tsoLabel.text = @"TSO Disabled (0ms Bufferbloat Guard)";
         self.tsoLabel.textColor = [UIColor colorWithRed:0.3 green:0.95 blue:0.4 alpha:1.0];
         self.bufferLabel.text = @"Instant ACK (0ms) + 2 MB Buffers (somaxconn: 512)";
+        self.statusBadge.text = @"●  GAMING SENTINEL ACTIVE";
+        self.statusBadge.textColor = [UIColor colorWithRed:0.2 green:0.95 blue:0.4 alpha:1.0];
+        self.statusBadge.backgroundColor = [UIColor colorWithRed:0.06 green:0.22 blue:0.12 alpha:0.9];
     }
     [self applyShield];
 }
@@ -853,12 +868,19 @@ static NSUInteger get_free_memory_mb(void) {
 
 - (void)purgeRAMTapped:(UIButton *)sender {
     sender.enabled = NO;
+    NSUInteger beforeMB = get_free_memory_mb();
     [sender setTitle:@"⚡ Cleaning Inactive Pages..." forState:UIControlStateNormal];
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
         run_cmd([NSString stringWithFormat:@"%@ purge", get_shield_ctl_path()]);
+        NSUInteger afterMB = get_free_memory_mb();
         dispatch_async(dispatch_get_main_queue(), ^{
             [self updateRAM];
-            [sender setTitle:@"✓ RAM Cleaned (+500 MB Reclaimed)" forState:UIControlStateNormal];
+            if (afterMB > beforeMB) {
+                NSUInteger freed = afterMB - beforeMB;
+                [sender setTitle:[NSString stringWithFormat:@"✓ RAM Purged (+%lu MB Available)", (unsigned long)freed] forState:UIControlStateNormal];
+            } else {
+                [sender setTitle:@"✓ Inactive Memory Cleared" forState:UIControlStateNormal];
+            }
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
                 [sender setTitle:@"⚡ Clean Inactive RAM (Purge Cache)" forState:UIControlStateNormal];
                 sender.enabled = YES;
@@ -898,7 +920,7 @@ static NSUInteger get_free_memory_mb(void) {
             sender.backgroundColor = [UIColor colorWithRed:0.08 green:0.25 blue:0.15 alpha:0.9];
             sender.layer.borderColor = [UIColor colorWithRed:0.2 green:0.7 blue:0.3 alpha:0.5].CGColor;
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(4.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                [sender setTitle:@"🧹 Deep Clean Flash Storage & Logs (+200+ MB)" forState:UIControlStateNormal];
+                [sender setTitle:@"🧹 Deep Clean Flash Storage & Stale Caches" forState:UIControlStateNormal];
                 sender.backgroundColor = [UIColor colorWithRed:0.10 green:0.18 blue:0.26 alpha:0.9];
                 sender.layer.borderColor = [UIColor colorWithRed:0.2 green:0.5 blue:0.7 alpha:0.4].CGColor;
                 sender.enabled = YES;
@@ -918,7 +940,7 @@ static NSUInteger get_free_memory_mb(void) {
                 self.daemonStatusLabel.text = @"On: Persistent 24/7 root daemon active across reboots.";
                 self.statusBadge.text = @"●  24/7 SENTINEL ACTIVE";
             } else {
-                self.daemonStatusLabel.text = @"Off: Shield active in App Switcher; reverts when swiped away.";
+                self.daemonStatusLabel.text = @"Pull down or hold banner in Notification Bar: Streaming • Gaming • Off directly.";
                 self.statusBadge.text = @"●  SENTINEL ACTIVE";
             }
         });
@@ -941,7 +963,7 @@ static NSUInteger get_free_memory_mb(void) {
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
             run_cmd([NSString stringWithFormat:@"%@ daemon disable", get_shield_ctl_path()]);
             dispatch_async(dispatch_get_main_queue(), ^{
-                self.daemonStatusLabel.text = @"Off: Shield active in App Switcher; reverts when swiped away.";
+                self.daemonStatusLabel.text = @"Pull down or hold banner in Notification Bar: Streaming • Gaming • Off directly.";
                 self.statusBadge.text = @"●  SENTINEL ACTIVE";
                 [self applyShield];
             });
@@ -950,14 +972,31 @@ static NSUInteger get_free_memory_mb(void) {
 }
 
 - (void)applyShield {
-    if (self.daemonSwitch.isOn) {
-        return;
-    }
-    pid_t myPid = getpid();
     NSString *mode = (self.modeControl.selectedSegmentIndex == 0) ? @"streaming" : @"gaming";
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
-        NSString *cmd = [NSString stringWithFormat:@"%@ start %@ %d", get_shield_ctl_path(), mode, myPid];
+        NSString *cmd = [NSString stringWithFormat:@"%@ start %@", get_shield_ctl_path(), mode];
         run_cmd(cmd);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [AppDelegate updateNotificationBannerWithMode:mode];
+        });
+    });
+}
+
+- (void)handleExternalModeChange:(NSNotification *)notif {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        NSString *mode = (NSString *)notif.object;
+        if ([mode isEqualToString:@"streaming"]) {
+            self.modeControl.selectedSegmentIndex = 0;
+            self.statusBadge.text = @"●  SENTINEL ACTIVE";
+            self.statusBadge.textColor = [UIColor colorWithRed:0.20 green:0.78 blue:0.35 alpha:1.0];
+        } else if ([mode isEqualToString:@"gaming"]) {
+            self.modeControl.selectedSegmentIndex = 1;
+            self.statusBadge.text = @"●  SENTINEL ACTIVE";
+            self.statusBadge.textColor = [UIColor colorWithRed:0.20 green:0.78 blue:0.35 alpha:1.0];
+        } else {
+            self.statusBadge.text = @"●  OFF (STOCK IOS)";
+            self.statusBadge.textColor = [UIColor colorWithWhite:0.6 alpha:1.0];
+        }
     });
 }
 
@@ -1006,27 +1045,208 @@ static NSUInteger get_free_memory_mb(void) {
     });
 }
 
+- (void)captureLiveScreenshotPath:(NSString *)path scrollOffset:(CGFloat)offset {
+    self.scrollView.contentOffset = CGPointMake(0, offset);
+    [self.view setNeedsLayout];
+    [self.view layoutIfNeeded];
+    
+    CGSize size = self.view.bounds.size;
+    if (size.width <= 0 || size.height <= 0) {
+        size = [UIScreen mainScreen].bounds.size;
+    }
+    
+    UIGraphicsBeginImageContextWithOptions(size, YES, 0.0);
+    CGContextRef ctx = UIGraphicsGetCurrentContext();
+    [self.view.layer renderInContext:ctx];
+    UIImage *image = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+    
+    if (image) {
+        NSData *pngData = UIImagePNGRepresentation(image);
+        [pngData writeToFile:path atomically:YES];
+    }
+}
+
 @end
 
-@interface AppDelegate : UIResponder <UIApplicationDelegate>
-@property (strong, nonatomic) UIWindow *window;
-@end
+
+
+static void log_notif(NSString *format, ...) {
+    va_list args;
+    va_start(args, format);
+    NSString *msg = [[NSString alloc] initWithFormat:format arguments:args];
+    va_end(args);
+    
+    NSString *line = [NSString stringWithFormat:@"[%@] %@\n", [NSDate date], msg];
+    NSString *path = @"/var/tmp/antilag_notif.log";
+    NSFileHandle *handle = [NSFileHandle fileHandleForWritingAtPath:path];
+    if (!handle) {
+        [[NSFileManager defaultManager] createFileAtPath:path contents:[line dataUsingEncoding:NSUTF8StringEncoding] attributes:nil];
+    } else {
+        [handle seekToEndOfFile];
+        [handle writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
+        [handle closeFile];
+    }
+    NSLog(@"[AntiLagShield] %@", msg);
+}
 
 @implementation AppDelegate
 
++ (void)updateNotificationBannerWithMode:(NSString *)mode {
+    log_notif(@"updateNotificationBannerWithMode called with mode: %@", mode);
+    UNUserNotificationCenter *center = [UNUserNotificationCenter currentNotificationCenter];
+    
+    [center getNotificationSettingsWithCompletionHandler:^(UNNotificationSettings * _Nonnull settings) {
+        log_notif(@"Current settings: authStatus=%ld (0=notDet, 1=denied, 2=authorized, 3=prov), alertSetting=%ld, soundSetting=%ld", 
+                  (long)settings.authorizationStatus, (long)settings.alertSetting, (long)settings.soundSetting);
+    }];
+    
+    UNMutableNotificationContent *content = [[UNMutableNotificationContent alloc] init];
+    content.title = @"🛡️ Anti-Lag Shield Pro";
+    
+    if ([mode isEqualToString:@"streaming"]) {
+        content.subtitle = @"Current Mode: 🎬 Streaming (Active)";
+        content.body = @"Retina throughput & zero stutter. Hold or pull down banner to toggle.";
+    } else if ([mode isEqualToString:@"gaming"]) {
+        content.subtitle = @"Current Mode: 🎮 Gaming (Active)";
+        content.body = @"0ms instant ACK & anti-bufferbloat active. Hold or pull down banner to toggle.";
+    } else {
+        content.subtitle = @"Status: 🛑 Off (Stock iOS)";
+        content.body = @"Hold or pull down banner to quickly enable Streaming or Gaming.";
+    }
+    
+    content.categoryIdentifier = @"SHIELD_SWITCHER";
+    content.sound = nil;
+    
+    UNNotificationRequest *req = [UNNotificationRequest requestWithIdentifier:@"antilag_shield_banner"
+                                                                      content:content
+                                                                      trigger:nil];
+    [center addNotificationRequest:req withCompletionHandler:^(NSError * _Nullable error) {
+        if (error) {
+            log_notif(@"addNotificationRequest ERROR: %@", error);
+        } else {
+            log_notif(@"addNotificationRequest SUCCESS for mode: %@", mode);
+        }
+    }];
+}
+
+- (void)registerNotificationCategories {
+    UNNotificationAction *streamAction = [UNNotificationAction actionWithIdentifier:@"ACTION_STREAMING"
+                                                                              title:@"🎬 Streaming Mode"
+                                                                            options:UNNotificationActionOptionNone];
+    UNNotificationAction *gameAction = [UNNotificationAction actionWithIdentifier:@"ACTION_GAMING"
+                                                                           title:@"🎮 Gaming Mode"
+                                                                         options:UNNotificationActionOptionNone];
+    UNNotificationAction *offAction = [UNNotificationAction actionWithIdentifier:@"ACTION_OFF"
+                                                                         title:@"🛑 Turn Off"
+                                                                       options:UNNotificationActionOptionDestructive];
+
+    UNNotificationCategory *category = [UNNotificationCategory categoryWithIdentifier:@"SHIELD_SWITCHER"
+                                                                              actions:@[streamAction, gameAction, offAction]
+                                                                    intentIdentifiers:@[]
+                                                                              options:UNNotificationCategoryOptionCustomDismissAction];
+
+    [[UNUserNotificationCenter currentNotificationCenter] setNotificationCategories:[NSSet setWithObject:category]];
+    log_notif(@"registerNotificationCategories completed");
+}
+
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
+    log_notif(@"application:didFinishLaunchingWithOptions: started");
+    
     self.window = [[UIWindow alloc] initWithFrame:[[UIScreen mainScreen] bounds]];
     self.window.rootViewController = [[ShieldViewController alloc] init];
     [self.window makeKeyAndVisible];
+    
+    [UNUserNotificationCenter currentNotificationCenter].delegate = self;
+    [self registerNotificationCategories];
+    
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        log_notif(@"Requesting notification authorization via UNUserNotificationCenter...");
+        [[UNUserNotificationCenter currentNotificationCenter] requestAuthorizationWithOptions:(UNAuthorizationOptionAlert | UNAuthorizationOptionSound | UNAuthorizationOptionBadge)
+                                                                            completionHandler:^(BOOL granted, NSError * _Nullable error) {
+            log_notif(@"requestAuthorizationWithOptions callback: granted=%d, error=%@", granted, error);
+            dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+                run_cmd([NSString stringWithFormat:@"%@ status > /tmp/curstat.txt 2>/dev/null", get_shield_ctl_path()]);
+                NSString *s = [NSString stringWithContentsOfFile:@"/tmp/curstat.txt" encoding:NSUTF8StringEncoding error:nil];
+                NSString *m = @"off";
+                if ([s containsString:@"streaming"]) m = @"streaming";
+                else if ([s containsString:@"gaming"]) m = @"gaming";
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [AppDelegate updateNotificationBannerWithMode:m];
+                });
+            });
+        }];
+    });
+    
+    return YES;
+}
+
+- (void)userNotificationCenter:(UNUserNotificationCenter *)center
+       willPresentNotification:(UNNotification *)notification
+         withCompletionHandler:(void (^)(UNNotificationPresentationOptions))completionHandler {
+    if (@available(iOS 14.0, *)) {
+        completionHandler(UNNotificationPresentationOptionBanner | UNNotificationPresentationOptionList);
+    } else {
+        completionHandler(UNNotificationPresentationOptionAlert);
+    }
+}
+
+- (void)userNotificationCenter:(UNUserNotificationCenter *)center
+    didReceiveNotificationResponse:(UNNotificationResponse *)response
+             withCompletionHandler:(void (^)(void))completionHandler {
+    NSString *actionId = response.actionIdentifier;
+    log_notif(@"userNotificationCenter:didReceiveNotificationResponse action: %@", actionId);
+    
+    if ([actionId isEqualToString:@"ACTION_STREAMING"]) {
+        run_cmd([NSString stringWithFormat:@"%@ start streaming", get_shield_ctl_path()]);
+        [AppDelegate updateNotificationBannerWithMode:@"streaming"];
+        [[NSNotificationCenter defaultCenter] postNotificationName:@"ShieldModeChangedExternally" object:@"streaming"];
+    } else if ([actionId isEqualToString:@"ACTION_GAMING"]) {
+        run_cmd([NSString stringWithFormat:@"%@ start gaming", get_shield_ctl_path()]);
+        [AppDelegate updateNotificationBannerWithMode:@"gaming"];
+        [[NSNotificationCenter defaultCenter] postNotificationName:@"ShieldModeChangedExternally" object:@"gaming"];
+    } else if ([actionId isEqualToString:@"ACTION_OFF"]) {
+        run_cmd([NSString stringWithFormat:@"%@ stop", get_shield_ctl_path()]);
+        [AppDelegate updateNotificationBannerWithMode:@"off"];
+        [[NSNotificationCenter defaultCenter] postNotificationName:@"ShieldModeChangedExternally" object:@"off"];
+    }
+    
+    completionHandler();
+}
+
+- (BOOL)application:(UIApplication *)app openURL:(NSURL *)url options:(NSDictionary<UIApplicationOpenURLOptionsKey,id> *)options {
+    NSString *host = url.host.lowercaseString;
+    log_notif(@"openURL called with host: %@", host);
+    if ([host isEqualToString:@"banner"]) {
+        [AppDelegate updateNotificationBannerWithMode:@"streaming"];
+        return YES;
+    }
+    if ([host isEqualToString:@"screenshot"]) {
+        ShieldViewController *vc = (ShieldViewController *)self.window.rootViewController;
+        [vc captureLiveScreenshotPath:@"/tmp/antilag_live_top.png" scrollOffset:0.0];
+        CGFloat maxOffset = vc.scrollView.contentSize.height - vc.view.bounds.size.height;
+        if (maxOffset < 0) maxOffset = 0;
+        [vc captureLiveScreenshotPath:@"/tmp/antilag_live_bottom.png" scrollOffset:maxOffset];
+        return YES;
+    }
+    if ([host isEqualToString:@"streaming"]) {
+        run_cmd([NSString stringWithFormat:@"%@ start streaming", get_shield_ctl_path()]);
+        [AppDelegate updateNotificationBannerWithMode:@"streaming"];
+        [[NSNotificationCenter defaultCenter] postNotificationName:@"ShieldModeChangedExternally" object:@"streaming"];
+    } else if ([host isEqualToString:@"gaming"]) {
+        run_cmd([NSString stringWithFormat:@"%@ start gaming", get_shield_ctl_path()]);
+        [AppDelegate updateNotificationBannerWithMode:@"gaming"];
+        [[NSNotificationCenter defaultCenter] postNotificationName:@"ShieldModeChangedExternally" object:@"gaming"];
+    } else if ([host isEqualToString:@"off"] || [host isEqualToString:@"stop"]) {
+        run_cmd([NSString stringWithFormat:@"%@ stop", get_shield_ctl_path()]);
+        [AppDelegate updateNotificationBannerWithMode:@"off"];
+        [[NSNotificationCenter defaultCenter] postNotificationName:@"ShieldModeChangedExternally" object:@"off"];
+    }
     return YES;
 }
 
 - (void)applicationWillTerminate:(UIApplication *)application {
-    run_cmd([NSString stringWithFormat:@"%@ status > /tmp/curstat.txt 2>/dev/null", get_shield_ctl_path()]);
-    NSString *s = [NSString stringWithContentsOfFile:@"/tmp/curstat.txt" encoding:NSUTF8StringEncoding error:nil];
-    if (![s containsString:@"DAEMON"]) {
-        run_cmd([NSString stringWithFormat:@"%@ stop", get_shield_ctl_path()]);
-    }
+    // Keep active in the background! Kernel sysctls remain in effect and notification banner stays active.
 }
 
 @end

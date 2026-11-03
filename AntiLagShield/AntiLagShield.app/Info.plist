@@ -14,7 +14,7 @@
 		<string>AppIcon76x76</string>
 	</array>
 	<key>CFBundleIdentifier</key>
-	<string>com.jordan.antilagshield</string>
+	<string>com.nightknight.antilagshield</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
@@ -44,7 +44,7 @@
 			<key>CFBundleTypeRole</key>
 			<string>Viewer</string>
 			<key>CFBundleURLName</key>
-			<string>com.jordan.antilagshield</string>
+			<string>com.nightknight.antilagshield</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>shield</string>

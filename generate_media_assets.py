@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 # ==============================================================================
-# 🎨 Chariz & Havoc Media Asset Generator
+# 🎨 Official Release Media Asset Generator
 # Creates pixel-perfect Banner (1920x640) and 4 High-Resolution Screenshots (1080x1920)
-# for the Chariz Screenshot Carousel and Asset Library.
+# for the Official Screenshot Carousel and Asset Library.
 # ==============================================================================
 
 import os, math
 from PIL import Image, ImageDraw, ImageFont
 
 ASSETS_DIR = "/Users/jordanallison/.gemini/antigravity/scratch/ipad-jb/assets"
-DESKTOP_DIR = "/Users/jordanallison/Desktop/Chariz_Assets"
-DOWNLOADS_DIR = "/Users/jordanallison/Downloads/Chariz_Assets"
+DESKTOP_DIR = "/Users/jordanallison/Desktop/Media_Assets"
+DOWNLOADS_DIR = "/Users/jordanallison/Downloads/Media_Assets"
 
 for d in [ASSETS_DIR, DESKTOP_DIR, DOWNLOADS_DIR]:
     os.makedirs(d, exist_ok=True)
@@ -93,9 +93,9 @@ def draw_wrapped_text(draw, text, font, fill, x, y, max_width, line_spacing=5):
     return curr_y
 
 # ==============================================================================
-# 1. CHARIZ BANNER (1920 x 640)
+# 1. OFFICIAL BANNER (1920 x 640)
 # ==============================================================================
-def create_chariz_banner():
+def create_media_banner():
     w, h = 1920, 640
     img = Image.new("RGB", (w, h), BG_COLOR)
     draw = ImageDraw.Draw(img)
@@ -151,8 +151,8 @@ def create_chariz_banner():
         px += pw + 18
         
     # Developer Credit
-    draw.text((content_x, 465), "Developer: NightKnight24 • Open-Source on GitHub", font=font_small, fill=MUTED)
-    draw.text((content_x, 495), "Available on Havoc & Chariz Repos • Sileo, Zebra & TrollStore", font=font_mono_small, fill=CYAN)
+    draw.text((content_x, 465), "Author: Jordan Allison (NightKnight24) • Open-Source on GitHub", font=font_small, fill=MUTED)
+    draw.text((content_x, 495), "Supports iOS & iPadOS 12.0 – 17.x • Rootless (arm64)", font=font_mono_small, fill=CYAN)
     
     return img
 
@@ -170,7 +170,7 @@ def create_screenshot_1():
     
     # Header Banner
     draw_rounded_rect(draw, [60, 60, w - 60, 180], 20, fill=CARD_BG, outline=CYAN, width=2)
-    draw_centered_text(draw, "🛡️ ANTI-LAG SHIELD PRO v3.8", font_h1, WHITE, w // 2, 85)
+    draw_centered_text(draw, "🛡️ Anti-Lag Shield", font_h1, WHITE, w // 2, 85)
     draw_centered_text(draw, "Live Dashboard • Hardware Sentinel • System Health", font_body, CYAN, w // 2, 140)
     
     # Sentinel Badge
@@ -464,8 +464,8 @@ def create_screenshot_4():
         
     return img
 
-print("==> Generating Chariz Banner (1920x640)...")
-banner_img = create_chariz_banner()
+print("==> Generating Official Banner (1920x640)...")
+banner_img = create_media_banner()
 banner_img.save(f"{ASSETS_DIR}/AntiLagShield_Banner.png")
 banner_img.save(f"{DESKTOP_DIR}/AntiLagShield_Banner.png")
 banner_img.save(f"{DOWNLOADS_DIR}/AntiLagShield_Banner.png")
@@ -494,4 +494,4 @@ s4.save(f"{ASSETS_DIR}/Screenshot_4_Network_and_Gamepads.png")
 s4.save(f"{DESKTOP_DIR}/Screenshot_4_Network_and_Gamepads.png")
 s4.save(f"{DOWNLOADS_DIR}/Screenshot_4_Network_and_Gamepads.png")
 
-print("==> Successfully generated all Chariz media assets!")
+print("==> Successfully generated all Official media assets!")

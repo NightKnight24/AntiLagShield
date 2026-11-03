@@ -468,13 +468,13 @@ def render_scene_7(frame_idx, total_frames):
     c_y = 245
     c_h = 360
     
-    # Card 1: Sileo / Havoc
+    # Card 1: Sileo / Zebra
     draw_rounded_rect(draw, [c1_x, c_y, c1_x + card_w, c_y + c_h], 16, fill=CARD_BG, outline=CYAN, width=2)
     draw.text((c1_x + 25, c_y + 25), "📦 SILEO / ZEBRA / CYDIA", font=font_h3, fill=CYAN)
     draw.text((c1_x + 25, c_y + 75), "Add Official Source:", font=font_small, fill=GRAY)
     draw_wrapped_text(draw, "https://nightknight24.github.io/repo/", font_mono_small, WHITE, c1_x + 25, c_y + 105, card_w - 50)
-    draw.text((c1_x + 25, c_y + 185), "Also Available on Havoc Repo:", font=font_small, fill=GRAY)
-    draw_wrapped_text(draw, "Search 'Anti-Lag Shield' in Sileo or Zebra", font_body, GREEN, c1_x + 25, c_y + 215, card_w - 50)
+    draw.text((c1_x + 25, c_y + 185), "Direct APT Source:", font=font_small, fill=GRAY)
+    draw_wrapped_text(draw, "Tap 'Add Source' in Sileo or Zebra", font_body, GREEN, c1_x + 25, c_y + 215, card_w - 50)
     
     # Card 2: TrollStore
     draw_rounded_rect(draw, [c2_x, c_y, c2_x + card_w, c_y + c_h], 16, fill=CARD_BG, outline=GREEN, width=2)
