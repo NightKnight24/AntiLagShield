@@ -85,22 +85,39 @@ def draw_centered_text(draw, text, font, fill, center_x, y):
     return y + (font.getbbox(text)[3] - font.getbbox(text)[1])
 
 def wrap_text(text, font, max_width):
-    words = text.split(' ')
+    paragraphs = text.split('\n')
     lines = []
-    current_line = []
-    for word in words:
-        test_line = ' '.join(current_line + [word])
-        w = get_text_width(font, test_line)
-        if w <= max_width:
-            current_line.append(word)
-        else:
-            if current_line:
-                lines.append(' '.join(current_line))
-                current_line = [word]
+    for para in paragraphs:
+        words = para.split(' ')
+        current_line = []
+        for word in words:
+            if get_text_width(font, word) > max_width and '/' in word:
+                sub_parts = word.split('/')
+                for i, sp in enumerate(sub_parts):
+                    frag = sp + ('/' if i < len(sub_parts) - 1 else '')
+                    test_line = ' '.join(current_line + [frag]) if current_line else frag
+                    if get_text_width(font, test_line) <= max_width:
+                        if current_line:
+                            current_line.append(frag)
+                        else:
+                            current_line = [frag]
+                    else:
+                        if current_line:
+                            lines.append(' '.join(current_line))
+                        current_line = [frag]
+                continue
+            test_line = ' '.join(current_line + [word])
+            w = get_text_width(font, test_line)
+            if w <= max_width:
+                current_line.append(word)
             else:
-                lines.append(word)
-    if current_line:
-        lines.append(' '.join(current_line))
+                if current_line:
+                    lines.append(' '.join(current_line))
+                    current_line = [word]
+                else:
+                    lines.append(word)
+        if current_line:
+            lines.append(' '.join(current_line))
     return lines
 
 def draw_wrapped_text(draw, text, font, fill, x, y, max_width, line_spacing=5):
@@ -552,7 +569,7 @@ def render_scene_7(frame_idx, total_frames):
     draw_rounded_rect(draw, [c1_x, c_y, c1_x + card_w, c_y + c_h], 16, fill=CARD_BG, outline=CYAN, width=2)
     draw.text((c1_x + 25, c_y + 25), "📦 SILEO / ZEBRA REPOSITORY", font=font_h3, fill=CYAN)
     draw.text((c1_x + 25, c_y + 75), "Add Official APT Source:", font=font_small, fill=GRAY)
-    draw_wrapped_text(draw, "https://nightknight24.github.io/AntiLagShield/repo", font_mono_small, WHITE, c1_x + 25, c_y + 105, card_w - 50)
+    draw_wrapped_text(draw, "https://nightknight24.github.io/\nAntiLagShield/repo", font_mono_small, WHITE, c1_x + 25, c_y + 105, card_w - 50)
     draw.text((c1_x + 25, c_y + 195), "Package Manager:", font=font_small, fill=GRAY)
     draw_wrapped_text(draw, "Search 'Anti-Lag Shield' and tap Get / Install", font_body, GREEN, c1_x + 25, c_y + 225, card_w - 50)
     
@@ -560,7 +577,7 @@ def render_scene_7(frame_idx, total_frames):
     draw_rounded_rect(draw, [c2_x, c_y, c2_x + card_w, c_y + c_h], 16, fill=CARD_BG, outline=GREEN, width=2)
     draw.text((c2_x + 25, c_y + 25), "⚡ 1-LINE CURL INSTALLER", font=font_h3, fill=GREEN)
     draw.text((c2_x + 25, c_y + 75), "NewTerm or SSH Terminal:", font=font_small, fill=GRAY)
-    draw_wrapped_text(draw, "curl -sL https://nightknight24.github.io/AntiLagShield/install.sh | bash", font_mono_small, YELLOW, c2_x + 25, c_y + 105, card_w - 50)
+    draw_wrapped_text(draw, "curl -sL https://nightknight24.github.io/\nAntiLagShield/install.sh | bash", font_mono_small, YELLOW, c2_x + 25, c_y + 105, card_w - 50)
     draw.text((c2_x + 25, c_y + 195), "Universal Compatibility:", font=font_small, fill=GRAY)
     draw_wrapped_text(draw, "Auto-detects rootless & rootful jailbreaks", font_body, WHITE, c2_x + 25, c_y + 225, card_w - 50)
     
@@ -568,7 +585,7 @@ def render_scene_7(frame_idx, total_frames):
     draw_rounded_rect(draw, [c3_x, c_y, c3_x + card_w, c_y + c_h], 16, fill=CARD_BG, outline=PURPLE, width=2)
     draw.text((c3_x + 25, c_y + 25), "🐙 GITHUB OPEN SOURCE", font=font_h3, fill=PURPLE)
     draw.text((c3_x + 25, c_y + 75), "Star & Fork on GitHub:", font=font_small, fill=GRAY)
-    draw_wrapped_text(draw, "github.com/NightKnight24/AntiLagShield", font_mono_small, WHITE, c3_x + 25, c_y + 105, card_w - 50)
+    draw_wrapped_text(draw, "github.com/NightKnight24/\nAntiLagShield", font_mono_small, WHITE, c3_x + 25, c_y + 105, card_w - 50)
     draw.text((c3_x + 25, c_y + 195), "Full Source Code Available:", font=font_small, fill=GRAY)
     draw_wrapped_text(draw, "App, CC module, SpringBoard hook & kernel engine", font_body, CYAN, c3_x + 25, c_y + 225, card_w - 50)
     

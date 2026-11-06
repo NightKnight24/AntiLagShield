@@ -661,7 +661,7 @@ static NSUInteger get_free_memory_mb(void) {
     y += revivalH + 14.0;
     
     // CARD 3: Active Defenses & Protocols
-    CGFloat cfgW = isNarrow ? 100.0 : 120.0;
+    CGFloat cfgW = isNarrow ? 95.0 : 120.0;
     self.cfgBtn.frame = CGRectMake(contentW - cfgW - 12.0, 8, cfgW, 26);
     
     CGFloat defH = 12.0 + (self.defTLabels.count * 43.0) + 8.0;
@@ -671,18 +671,19 @@ static NSUInteger get_free_memory_mb(void) {
     for (NSUInteger i = 0; i < self.defTLabels.count; i++) {
         UILabel *tLbl = self.defTLabels[i];
         UILabel *vLbl = self.defVLabels[i];
-        tLbl.frame = CGRectMake(16, dy, contentW - cfgW - 24.0, 15);
-        vLbl.frame = CGRectMake(16, dy + 15, contentW - 32, 18);
+        CGFloat rightLimit = (i == 0) ? (contentW - cfgW - 24.0) : (contentW - 32.0);
+        tLbl.frame = CGRectMake(16, dy, rightLimit, 15);
+        vLbl.frame = CGRectMake(16, dy + 15, contentW - 32.0, 18);
         dy += 43.0;
     }
     y += defH + 14.0;
     
     // CARD 4: VIP Process Scheduler
-    CGFloat vipH = 132.0;
+    CGFloat vipH = isNarrow ? 154.0 : 132.0;
     self.vipCard.frame = CGRectMake(startX, y, contentW, vipH);
     self.vipTitle.frame = CGRectMake(16, 12, contentW - 32, 16);
-    self.vipList.frame = CGRectMake(16, 32, contentW - 32, 66);
-    self.vipSub.frame = CGRectMake(16, 102, contentW - 32, 20);
+    self.vipList.frame = CGRectMake(16, 32, contentW - 32, isNarrow ? 86 : 66);
+    self.vipSub.frame = CGRectMake(16, isNarrow ? 122 : 102, contentW - 32, 20);
     y += vipH + 14.0;
     
     // CARD 5: Daemon Card
@@ -702,7 +703,8 @@ static NSUInteger get_free_memory_mb(void) {
     self.gitButton.frame = CGRectMake(12, 34, gBtnW, 66);
     self.ghIcon.frame = CGRectMake(12, 13, 40, 40);
     
-    CGFloat arrowW = 90.0;
+    CGFloat arrowW = isNarrow ? 32.0 : 90.0;
+    self.arrowLabel.text = isNarrow ? @"↗" : @"Visit Profile ↗";
     self.arrowLabel.frame = CGRectMake(gBtnW - arrowW - 12.0, 22, arrowW, 22);
     
     CGFloat textW = gBtnW - 60.0 - arrowW - 16.0;
