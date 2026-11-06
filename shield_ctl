@@ -218,7 +218,7 @@ apply_optimizations() {
     fi
 
     # 6. Prioritize current running media / gaming VIPs once (no polling loop!)
-    VIP_PATTERN="(Stremio|NodeMobile|stremio-runtime|stremio-service|ffmpeg|YouTube|PrimeVideo|Netflix|Disney|Twitch|Infuse|VLC|Kodi|Plex|Roblox|PojavLauncher|Minecraft|Delta|RetroArch|PPSSPP|Moonlight|GeForceNOW|SteamLink)"
+    VIP_PATTERN="(Stremio|NodeMobile|stremio-runtime|stremio-service|ffmpeg|YouTube|PrimeVideo|Netflix|Disney|Twitch|Infuse|VLC|Kodi|Plex|Roblox|PojavLauncher|Minecraft|Delta|RetroArch|PPSSPP|Moonlight|GeForceNOW|SteamLink|WebKit|coreaudiod|avconferenced)"
     APP_PIDS=$(/bin/ps -A -o pid,command 2>/dev/null | awk -v pat="$VIP_PATTERN" '$0 ~ pat && !/(awk|grep|shield)/ {print $1}')
     for p in $APP_PIDS; do
         if [ -n "$p" ] && [ "$p" -gt 1 ]; then
@@ -229,9 +229,28 @@ apply_optimizations() {
     if [ -n "$MS_PID" ]; then
         sudo renice -10 -p "$MS_PID" >/dev/null 2>&1
     fi
+
+    # 7. Deprioritize background bandwidth & telemetry hogs (prevents buffer starvation during streaming)
+    HOG_PATTERN="(nsurlsessiond|cloudd|appstored|analyticsd|triald|photoanalysisd)"
+    HOG_PIDS=$(/bin/ps -A -o pid,comm 2>/dev/null | awk -v pat="$HOG_PATTERN" '$0 ~ pat && !/awk/ {print $1}')
+    for hp in $HOG_PIDS; do
+        if [ -n "$hp" ] && [ "$hp" -gt 1 ]; then
+            sudo renice 10 -p "$hp" >/dev/null 2>&1
+        fi
+    done
+
+    # 8. Antenna Coexistence: Suppress awdl0 (AirDrop) radio channel-hopping to eliminate 100-250ms streaming micro-stutters
+    if ifconfig awdl0 >/dev/null 2>&1; then
+        sudo ifconfig awdl0 down >/dev/null 2>&1
+    fi
 }
 
 revert_optimizations() {
+    # Restore awdl0 (AirDrop) interface
+    if ifconfig awdl0 >/dev/null 2>&1; then
+        sudo ifconfig awdl0 up >/dev/null 2>&1
+    fi
+
     sudo sysctl -w net.inet.tcp.blackhole=0 >/dev/null 2>&1
     sudo sysctl -w net.inet.udp.blackhole=0 >/dev/null 2>&1
     sudo sysctl -w net.inet.tcp.tso=1 >/dev/null 2>&1
