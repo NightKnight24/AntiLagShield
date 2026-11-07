@@ -11,6 +11,7 @@ xcrun -sdk iphoneos clang "${CFLAGS[@]}" \
     -framework Foundation \
     "$DIR/shield_ctl_src/main.m" \
     -o "$DIR/shield_ctl"
+xcrun -sdk iphoneos strip -x "$DIR/shield_ctl"
 
 echo "==> [2/6] Compiling AntiLagShield.app..."
 cp "$DIR/AntiLagShield/Info.plist" "$DIR/AntiLagShield/AntiLagShield.app/Info.plist"
@@ -18,6 +19,7 @@ xcrun -sdk iphoneos clang "${CFLAGS[@]}" \
     -framework UIKit -framework Foundation \
     "$DIR/AntiLagShield/main.m" \
     -o "$DIR/AntiLagShield/AntiLagShield.app/AntiLagShield"
+xcrun -sdk iphoneos strip -x "$DIR/AntiLagShield/AntiLagShield.app/AntiLagShield"
 
 echo "==> [3/6] Compiling AntiLagShieldCC.bundle..."
 mkdir -p "$DIR/AntiLagShieldCC/AntiLagShieldCC.bundle"
@@ -25,13 +27,16 @@ xcrun -sdk iphoneos clang "${CFLAGS[@]}" -bundle -undefined dynamic_lookup \
     -framework Foundation -framework UIKit -framework CoreGraphics \
     "$DIR/AntiLagShieldCC/AntiLagShieldCC.m" \
     -o "$DIR/AntiLagShieldCC/AntiLagShieldCC.bundle/AntiLagShieldCC"
+xcrun -sdk iphoneos strip -x "$DIR/AntiLagShieldCC/AntiLagShieldCC.bundle/AntiLagShieldCC"
 
 echo "==> [4/6] Compiling AntiLagShieldBanner.dylib..."
 mkdir -p "$DIR/AntiLagShieldBanner"
 xcrun -sdk iphoneos clang "${CFLAGS[@]}" -shared \
-    -framework Foundation -framework UIKit -framework UserNotifications \
+    -install_name /var/jb/Library/MobileSubstrate/DynamicLibraries/AntiLagShieldBanner.dylib \
+    -framework Foundation -framework UIKit -framework QuartzCore -framework CoreGraphics \
     "$DIR/AntiLagShieldBanner/Tweak.m" \
     -o "$DIR/AntiLagShieldBanner/AntiLagShieldBanner.dylib"
+xcrun -sdk iphoneos strip -x "$DIR/AntiLagShieldBanner/AntiLagShieldBanner.dylib"
 
 echo "==> [5/6] Deploying binaries to $IPAD_HOST..."
 ssh "$IPAD_HOST" "rm -rf /tmp/als_stage && mkdir -p /tmp/als_stage"

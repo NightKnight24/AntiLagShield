@@ -125,7 +125,9 @@ static NSUInteger get_available_memory_mb(void) {
 
     vm_statistics64_data_t vm_stat;
     mach_msg_type_number_t count = HOST_VM_INFO64_COUNT;
-    if (host_statistics64(host_port, HOST_VM_INFO64, (host_info64_t)&vm_stat, &count) != KERN_SUCCESS) {
+    kern_return_t kr = host_statistics64(host_port, HOST_VM_INFO64, (host_info64_t)&vm_stat, &count);
+    mach_port_deallocate(mach_task_self(), host_port);
+    if (kr != KERN_SUCCESS) {
         return 0;
     }
 
@@ -244,10 +246,13 @@ static int query_iokit_battery_percent(BOOL *outCharging) {
 @property (nonatomic, strong) UILabel *vipSub;
 
 @property (nonatomic, strong) UIView *daemonCard;
+@property (nonatomic, strong) UILabel *bannerTitle;
+@property (nonatomic, strong) UILabel *bannerStatusLabel;
+@property (nonatomic, strong) UISwitch *bannerSwitch;
+@property (nonatomic, strong) UIView *daemonDivider;
 @property (nonatomic, strong) UILabel *dTitle;
 @property (nonatomic, strong) UILabel *daemonStatusLabel;
 @property (nonatomic, strong) UISwitch *daemonSwitch;
-@property (nonatomic, strong) UIButton *bannerButton;
 
 @property (nonatomic, strong) UIView *gitCard;
 @property (nonatomic, strong) UILabel *gitTitle;
@@ -342,7 +347,7 @@ static int query_iokit_battery_percent(BOOL *outCharging) {
     self.statusBadge.minimumScaleFactor = 0.8;
     [self.scrollView addSubview:self.statusBadge];
 
-    NSArray *items = @[@"Streaming", @"Gaming", @"Off"];
+    NSArray *items = @[@"Streaming", @"Gaming", @"Normal"];
     self.modeControl = [[UISegmentedControl alloc] initWithItems:items];
     self.modeControl.selectedSegmentIndex = 0;
     if (@available(iOS 13.0, *)) {
@@ -594,13 +599,39 @@ static int query_iokit_battery_percent(BOOL *outCharging) {
     self.vipSub.minimumScaleFactor = 0.75;
     [self.vipCard addSubview:self.vipSub];
 
-    // Card 5: Boot Persistence & Notification Banner
+    // Card 5: Notification Bar Banner & Boot Persistence
     self.daemonCard = [[UIView alloc] init];
     self.daemonCard.backgroundColor = [UIColor colorWithRed:0.08 green:0.10 blue:0.14 alpha:0.95];
     self.daemonCard.layer.cornerRadius = 16;
     self.daemonCard.layer.borderWidth = 1.0;
     self.daemonCard.layer.borderColor = [UIColor colorWithRed:0.15 green:0.20 blue:0.28 alpha:1.0].CGColor;
     [self.scrollView addSubview:self.daemonCard];
+
+    self.bannerTitle = [[UILabel alloc] init];
+    self.bannerTitle.text = @"Notification Bar Banner";
+    self.bannerTitle.font = [UIFont systemFontOfSize:14 weight:UIFontWeightBold];
+    self.bannerTitle.textColor = [UIColor whiteColor];
+    self.bannerTitle.adjustsFontSizeToFitWidth = YES;
+    self.bannerTitle.minimumScaleFactor = 0.75;
+    [self.daemonCard addSubview:self.bannerTitle];
+
+    self.bannerStatusLabel = [[UILabel alloc] init];
+    self.bannerStatusLabel.text = @"Pinned in Notification Center: Streaming, Gaming, Normal, RAM & Cache.";
+    self.bannerStatusLabel.numberOfLines = 2;
+    self.bannerStatusLabel.font = [UIFont systemFontOfSize:11 weight:UIFontWeightMedium];
+    self.bannerStatusLabel.textColor = [UIColor colorWithRed:0.2 green:0.95 blue:0.4 alpha:1.0];
+    self.bannerStatusLabel.adjustsFontSizeToFitWidth = YES;
+    self.bannerStatusLabel.minimumScaleFactor = 0.75;
+    [self.daemonCard addSubview:self.bannerStatusLabel];
+
+    self.bannerSwitch = [[UISwitch alloc] init];
+    self.bannerSwitch.on = YES;
+    [self.bannerSwitch addTarget:self action:@selector(bannerSwitchChanged:) forControlEvents:UIControlEventValueChanged];
+    [self.daemonCard addSubview:self.bannerSwitch];
+
+    self.daemonDivider = [[UIView alloc] init];
+    self.daemonDivider.backgroundColor = [UIColor colorWithRed:0.15 green:0.20 blue:0.28 alpha:0.9];
+    [self.daemonCard addSubview:self.daemonDivider];
 
     self.dTitle = [[UILabel alloc] init];
     self.dTitle.text = @"Apply Profile at Boot (LaunchDaemon)";
@@ -622,19 +653,6 @@ static int query_iokit_battery_percent(BOOL *outCharging) {
     self.daemonSwitch = [[UISwitch alloc] init];
     [self.daemonSwitch addTarget:self action:@selector(daemonSwitchChanged:) forControlEvents:UIControlEventValueChanged];
     [self.daemonCard addSubview:self.daemonSwitch];
-
-    self.bannerButton = [UIButton buttonWithType:UIButtonTypeSystem];
-    [self.bannerButton setTitle:@"Show Notification Center Quick-Toggle" forState:UIControlStateNormal];
-    self.bannerButton.titleLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightBold];
-    self.bannerButton.titleLabel.adjustsFontSizeToFitWidth = YES;
-    self.bannerButton.titleLabel.minimumScaleFactor = 0.75;
-    [self.bannerButton setTitleColor:[UIColor colorWithRed:0.85 green:0.92 blue:1.0 alpha:1.0] forState:UIControlStateNormal];
-    self.bannerButton.backgroundColor = [UIColor colorWithRed:0.12 green:0.16 blue:0.24 alpha:0.95];
-    self.bannerButton.layer.cornerRadius = 10;
-    self.bannerButton.layer.borderWidth = 1.0;
-    self.bannerButton.layer.borderColor = [UIColor colorWithRed:0.22 green:0.32 blue:0.46 alpha:0.5].CGColor;
-    [self.bannerButton addTarget:self action:@selector(showBannerTapped:) forControlEvents:UIControlEventTouchUpInside];
-    [self.daemonCard addSubview:self.bannerButton];
 
     // Card 6: Source Repository
     self.gitCard = [[UIView alloc] init];
@@ -830,12 +848,15 @@ static int query_iokit_battery_percent(BOOL *outCharging) {
     self.vipSub.frame = CGRectMake(16, isNarrow ? 124 : 104, contentW - 32, 20);
     y += vipH + 14.0;
 
-    CGFloat daemonH = 134.0;
+    CGFloat daemonH = 152.0;
     self.daemonCard.frame = CGRectMake(startX, y, contentW, daemonH);
-    self.dTitle.frame = CGRectMake(16, 14, contentW - 85, 20);
-    self.daemonStatusLabel.frame = CGRectMake(16, 36, contentW - 85, 34);
-    self.daemonSwitch.frame = CGRectMake(contentW - 65, 24, 51, 31);
-    self.bannerButton.frame = CGRectMake(12, 80, contentW - 24, 40);
+    self.bannerTitle.frame = CGRectMake(16, 14, contentW - 85, 20);
+    self.bannerStatusLabel.frame = CGRectMake(16, 36, contentW - 85, 32);
+    self.bannerSwitch.frame = CGRectMake(contentW - 65, 24, 51, 31);
+    self.daemonDivider.frame = CGRectMake(16, 76, contentW - 32, 1);
+    self.dTitle.frame = CGRectMake(16, 86, contentW - 85, 20);
+    self.daemonStatusLabel.frame = CGRectMake(16, 108, contentW - 85, 32);
+    self.daemonSwitch.frame = CGRectMake(contentW - 65, 96, 51, 31);
     y += daemonH + 14.0;
 
     CGFloat gitH = 114.0;
@@ -986,10 +1007,10 @@ static int query_iokit_battery_percent(BOOL *outCharging) {
         self.vipSub.textColor = [UIColor colorWithRed:0.3 green:0.85 blue:0.45 alpha:0.9];
     } else {
         self.modeControl.selectedSegmentIndex = 2;
-        self.statusBadge.text = @"●  OFF (STOCK XNU DEFAULTS)";
+        self.statusBadge.text = @"●  NORMAL MODE (STOCK XNU)";
         self.statusBadge.textColor = [UIColor colorWithWhite:0.7 alpha:1.0];
         self.statusBadge.backgroundColor = [UIColor colorWithWhite:0.16 alpha:0.9];
-        self.vipSub.text = @"Inactive: Processes running at default iOS priority (nice 0).";
+        self.vipSub.text = @"Normal Mode: Processes running at stock iOS priority (nice 0).";
         self.vipSub.textColor = [UIColor colorWithWhite:0.6 alpha:1.0];
     }
 }
@@ -1006,6 +1027,7 @@ static int query_iokit_battery_percent(BOOL *outCharging) {
         NSString *gh = @"";
         BOOL arpPerm = NO;
         BOOL bootDaemon = NO;
+        BOOL bannerEnabled = YES;
 
         for (NSString *line in [out componentsSeparatedByString:@"\n"]) {
             if ([line hasPrefix:@"MODE="]) {
@@ -1020,6 +1042,8 @@ static int query_iokit_battery_percent(BOOL *outCharging) {
                 arpPerm = [[line substringFromIndex:14] intValue] == 1;
             } else if ([line hasPrefix:@"BOOT_DAEMON="]) {
                 bootDaemon = [[line substringFromIndex:12] intValue] == 1;
+            } else if ([line hasPrefix:@"BANNER_ENABLED="]) {
+                bannerEnabled = [[line substringFromIndex:15] intValue] == 1;
             } else if ([line hasPrefix:@"GITHUB_URL="]) {
                 gh = [line substringFromIndex:11];
             }
@@ -1050,6 +1074,15 @@ static int query_iokit_battery_percent(BOOL *outCharging) {
                     self.defVLabels[0].text = @"No Default Gateway Detected";
                     self.defVLabels[0].textColor = [UIColor colorWithRed:1.0 green:0.45 blue:0.45 alpha:1.0];
                 }
+            }
+
+            self.bannerSwitch.on = bannerEnabled;
+            if (bannerEnabled) {
+                self.bannerStatusLabel.text = @"Pinned in Notification Center: Streaming, Gaming, Normal, RAM & Cache.";
+                self.bannerStatusLabel.textColor = [UIColor colorWithRed:0.2 green:0.95 blue:0.4 alpha:1.0];
+            } else {
+                self.bannerStatusLabel.text = @"Hidden: Enable to pin quick controls inside Notification Center.";
+                self.bannerStatusLabel.textColor = [UIColor colorWithWhite:0.6 alpha:1.0];
             }
 
             self.daemonSwitch.on = bootDaemon;
@@ -1096,11 +1129,17 @@ static int query_iokit_battery_percent(BOOL *outCharging) {
     });
 }
 
-- (void)showBannerTapped:(UIButton *)sender {
-    notify_post(kShowBannerNotify);
-    [sender setTitle:@"✓ Sent to Notification Center" forState:UIControlStateNormal];
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        [sender setTitle:@"Show Notification Center Quick-Toggle" forState:UIControlStateNormal];
+- (void)bannerSwitchChanged:(UISwitch *)sender {
+    BOOL wantEnabled = sender.isOn;
+    sender.enabled = NO;
+
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
+        int code = 0;
+        run_exec_capture(shield_ctl_bin(), @[@"banner", wantEnabled ? @"enable" : @"disable"], &code);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            sender.enabled = YES;
+            [self syncFromSystemState];
+        });
     });
 }
 
@@ -1423,7 +1462,7 @@ static NSString *parse_ping_ms(NSString *pingOutput, int exitCode) {
             run_exec_capture(shield_ctl_bin(), @[@"start", @"streaming"], &code);
         } else if ([host isEqualToString:@"gaming"]) {
             run_exec_capture(shield_ctl_bin(), @[@"start", @"gaming"], &code);
-        } else if ([host isEqualToString:@"off"] || [host isEqualToString:@"stop"]) {
+        } else if ([host isEqualToString:@"normal"] || [host isEqualToString:@"off"] || [host isEqualToString:@"stop"]) {
             run_exec_capture(shield_ctl_bin(), @[@"stop"], &code);
         }
         dispatch_async(dispatch_get_main_queue(), ^{

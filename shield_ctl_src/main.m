@@ -197,6 +197,7 @@ static NSMutableDictionary *load_prefs(void) {
     if (!dict[@"GatewayMAC"]) dict[@"GatewayMAC"] = @"auto";
     if (!dict[@"GitHubURL"]) dict[@"GitHubURL"] = kDefaultGitHubURL;
     if (!dict[@"LastMode"]) dict[@"LastMode"] = @"streaming";
+    if (!dict[@"BannerEnabled"]) dict[@"BannerEnabled"] = @YES;
     return dict;
 }
 
@@ -947,10 +948,39 @@ static int cmd_config(int argc, char *argv[]) {
     return 0;
 }
 
+static int cmd_banner(NSString *sub) {
+    NSMutableDictionary *prefs = load_prefs();
+    if ([sub isEqualToString:@"enable"] || [sub isEqualToString:@"on"] || [sub isEqualToString:@"1"]) {
+        prefs[@"BannerEnabled"] = @YES;
+        if (!save_prefs(prefs)) {
+            fprintf(stderr, "ERROR:Failed to save banner preference\n");
+            return 1;
+        }
+        notify_post("com.nightknight.antilagshield.showbanner");
+        notify_post(kStateChangedNotify);
+        printf("BANNER_ENABLED\n");
+        return 0;
+    }
+    if ([sub isEqualToString:@"disable"] || [sub isEqualToString:@"off"] || [sub isEqualToString:@"0"]) {
+        prefs[@"BannerEnabled"] = @NO;
+        if (!save_prefs(prefs)) {
+            fprintf(stderr, "ERROR:Failed to save banner preference\n");
+            return 1;
+        }
+        notify_post("com.nightknight.antilagshield.showbanner");
+        notify_post(kStateChangedNotify);
+        printf("BANNER_DISABLED\n");
+        return 0;
+    }
+    BOOL enabled = prefs[@"BannerEnabled"] ? [prefs[@"BannerEnabled"] boolValue] : YES;
+    printf("%s\n", enabled ? "BANNER_ACTIVE" : "BANNER_INACTIVE");
+    return 0;
+}
+
 int main(int argc, char *argv[]) {
     @autoreleasepool {
         if (argc < 2) {
-            fprintf(stderr, "Usage: %s {start [streaming|gaming]|stop|status|purge|clean|turbo [enable|disable|status]|config [show|set <ip> <mac>|set-github <url>|auto]|daemon [enable|disable|status]|run [streaming|gaming]}\n", argv[0]);
+            fprintf(stderr, "Usage: %s {start [streaming|gaming]|stop|status|purge|clean|turbo [enable|disable|status]|banner [enable|disable|status]|config [show|set <ip> <mac>|set-github <url>|auto]|daemon [enable|disable|status]|run [streaming|gaming]}\n", argv[0]);
             return 1;
         }
 
@@ -962,6 +992,10 @@ int main(int argc, char *argv[]) {
             return cmd_turbo(arg2 ?: @"status");
         }
 
+        if ([action isEqualToString:@"banner"]) {
+            return cmd_banner(arg2 ?: @"status");
+        }
+
         if ([action isEqualToString:@"status"]) {
             bool active = false;
             NSString *mode = read_active_mode(&active);
@@ -969,6 +1003,7 @@ int main(int argc, char *argv[]) {
                 GatewayInfo gw = resolve_gateway();
                 BOOL bootDaemon = [[NSFileManager defaultManager] fileExistsAtPath:launch_daemon_plist_path()];
                 NSDictionary *prefs = load_prefs();
+                BOOL bannerEnabled = prefs[@"BannerEnabled"] ? [prefs[@"BannerEnabled"] boolValue] : YES;
                 printf("STATE=%s\n", active ? [NSString stringWithFormat:@"ACTIVE:%@", mode].UTF8String : "INACTIVE");
                 printf("MODE=%s\n", mode.UTF8String);
                 printf("LAST_MODE=%s\n", [prefs[@"LastMode"] UTF8String]);
@@ -977,6 +1012,7 @@ int main(int argc, char *argv[]) {
                 printf("ROUTER_MAC=%s\n", gw.router_mac);
                 printf("ARP_PERMANENT=%d\n", gw.arp_permanent ? 1 : 0);
                 printf("BOOT_DAEMON=%d\n", bootDaemon ? 1 : 0);
+                printf("BANNER_ENABLED=%d\n", bannerEnabled ? 1 : 0);
                 printf("GITHUB_URL=%s\n", [prefs[@"GitHubURL"] UTF8String]);
             } else {
                 if (active) {
@@ -1005,7 +1041,7 @@ int main(int argc, char *argv[]) {
             return 1;
         }
 
-        if ([action isEqualToString:@"start"] || [action isEqualToString:@"start_daemon"]) {
+        if (([action isEqualToString:@"start"] || [action isEqualToString:@"start_daemon"]) && ![arg2 isEqualToString:@"normal"]) {
             NSString *mode = ([arg2 isEqualToString:@"gaming"]) ? @"gaming" : @"streaming";
             int applied = 0, total = 0;
             GatewayInfo gw;
@@ -1018,7 +1054,8 @@ int main(int argc, char *argv[]) {
             return 0;
         }
 
-        if ([action isEqualToString:@"stop"]) {
+        if ([action isEqualToString:@"stop"] || [action isEqualToString:@"normal"] ||
+            ([action isEqualToString:@"start"] && [arg2 isEqualToString:@"normal"])) {
             if (!revert_optimizations()) {
                 fprintf(stderr, "ERROR:Failed to restore kernel sysctls\n");
                 return 1;

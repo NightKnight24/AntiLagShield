@@ -27,8 +27,8 @@ Watch the official 1080p feature walkthrough and demonstration on YouTube:
 ### 1. 🎛️ Three Quick-Toggle Options
 Switch modes instantly from anywhere on your device:
 * **Control Center Module (`CCSupport`):** Swipe down from the top-right corner inside any app or game, and tap the Anti-Lag Shield module to toggle between Active and Off.
-* **Interactive Notification Banner:** Pull down or hold the banner in the Notification Center / Lock Screen to switch between `🎬 Streaming`, `🎮 Gaming`, and `🛑 Turn Off`.
-* **Siri Shortcuts & Widgets:** Custom URL schemes (`shield://streaming`, `shield://gaming`, `shield://off`) allow 1-tap switching from Lock Screen circular widgets, Home Screen icons, or voice commands.
+* **Notification Bar Banner (`SpringBoard` Adjunct Platter):** Swipe down the Notification Center / Lock Screen for 1-tap controls right inside a persistent native platter — switch between **Streaming**, **Gaming**, and **Normal** modes, or tap **Clear RAM** and **Clear Cache** with live megabyte readouts (without dismissing the banner).
+* **Siri Shortcuts & Widgets:** Custom URL schemes (`shield://streaming`, `shield://gaming`, `shield://normal`) allow 1-tap switching from Lock Screen circular widgets, Home Screen icons, or voice commands.
 
 ### 2. 🚀 100% Passive Kernel Model (0% Background CPU)
 * **Zero Background Loops:** No persistent daemon loops, no process forks, and 0% idle CPU drain.
@@ -110,6 +110,10 @@ shield_ctl purge
 
 # Safe flash cache clean
 shield_ctl clean
+
+# Show or hide the persistent Notification Bar Banner
+shield_ctl banner enable
+shield_ctl banner disable
 
 # View or auto-detect gateway configuration
 shield_ctl config show
