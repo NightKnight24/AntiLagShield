@@ -1,47 +1,15 @@
 Package: com.nightknight.antilagshield
-Name: Anti-Lag Shield Pro
-Version: 3.8
-Architecture: iphoneos-arm
-Description: Universal Network Sentinel & Device Revival suite for iOS & iPadOS.
-Maintainer: NightKnight <nightknight24@users.noreply.github.com>
-Author: NightKnight24
-Section: Utilities
-Depends: bash, sudo
-Icon: https://nightknight24.github.io/repo/icon.png
-Filename: debs/AntiLagShield_v3.8_rootful.deb
-Size: 92884
-MD5sum: ee3789e8b5c790f7ca8f678bd44e9723
-SHA1: 4a7d2a45c23e08da13ca21de6048ef5e3c7354e8
-SHA256: 27a48bec48390543e8323bf541cecd6b37d1f565960e2089866b097d5818964d
-
-Package: com.nightknight.antilagshield
-Name: Anti-Lag Shield Pro
-Version: 3.8
-Architecture: iphoneos-arm64
-Description: Universal Network Sentinel & Device Revival suite for iOS & iPadOS.
-Maintainer: NightKnight <nightknight24@users.noreply.github.com>
-Author: NightKnight24
-Section: Utilities
-Depends: bash, sudo
-Icon: https://nightknight24.github.io/repo/icon.png
-Filename: debs/AntiLagShield_v3.8_rootless.deb
-Size: 92916
-MD5sum: facbf9951bbd0da9a0154990fd6f6953
-SHA1: 7ce8c569c73734f2d0ac05d969d39916bf02b354
-SHA256: 970e951078d46829142591138d8ed5beca36bc71863ae0799a3219ccfcab8f24
-
-Package: com.nightknight.antilagshield
 Name: Anti-Lag Shield
 Version: 1.0.0
 Architecture: iphoneos-arm64
-Description: Network buffer and latency tuning suite with Control Center, Banner, and Shortcut toggles.
-Maintainer: Jordan Allison <nightknight24@users.noreply.github.com>
-Author: Jordan Allison
+Description: XNU socket buffer, TCP delayed-ACK, and radio coexistence tuning utility with Control Center and Notification Center quick-toggles.
+Maintainer: NightKnight24 <nightknight24@users.noreply.github.com>
+Author: NightKnight24
 Section: System
 Depends: firmware (>= 12.0)
 Filename: debs/com.nightknight.antilagshield_1.0.0_iphoneos-arm64.deb
-Size: 113720
-MD5sum: 9b073514003cb0a19b801f564539fdd5
-SHA1: 3c8d415151ec4e1a7f6fcf7e65240ea40b81df96
-SHA256: 39daf7e63dc131e7807214249a080042d4fead025d5b864403b3e7debeaf6203
+Size: 146948
+MD5sum: 214798488741f9c0a2c53b1c6b7bd1dc
+SHA1: 260b762f027b7f72ded8214cd69f3552c80f07b9
+SHA256: 34de6e1681b1f381d0dcb5b4ac71db68b1ba283605ad5867670d4685aca51cd3
 

@@ -1,0 +1,12 @@
+.DS_Store
+*.o
+*~
+*.swp
+__pycache__/
+CONVERSATION_HISTORY.md
+ssh_exec.exp
+ssh_run.py
+add_section.py
+memtest.m
+test_voice_budget.py
+AntiLagShield_Showcase.mp4

@@ -20,8 +20,10 @@ from PIL import Image, ImageDraw, ImageFont
 WIDTH = 1920
 HEIGHT = 1080
 FPS = 30
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+HOME_DIR = os.path.expanduser("~")
 OUTPUT_RAW = "/tmp/showcase_raw.mp4"
-FINAL_VIDEO = "/Users/jordanallison/.gemini/antigravity/scratch/ipad-jb/AntiLagShield_Showcase.mp4"
+FINAL_VIDEO = os.path.join(BASE_DIR, "AntiLagShield_Showcase.mp4")
 
 # Safe boundaries
 MARGIN_X = 100
@@ -64,8 +66,8 @@ GRAY = (150, 155, 165)
 MUTED = (95, 105, 120)
 
 # Pre-load live screenshots
-LIVE_TOP_PATH = "/Users/jordanallison/.gemini/antigravity/brain/58a92e58-afdd-43ff-a171-1e809caa3c0b/antilag_live_top.png"
-LIVE_BOTTOM_PATH = "/Users/jordanallison/.gemini/antigravity/brain/58a92e58-afdd-43ff-a171-1e809caa3c0b/antilag_live_bottom.png"
+LIVE_TOP_PATH = os.environ.get("ALS_LIVE_TOP", os.path.join(BASE_DIR, "assets", "Screenshot_1_Live_Telemetry.png"))
+LIVE_BOTTOM_PATH = os.environ.get("ALS_LIVE_BOTTOM", os.path.join(BASE_DIR, "assets", "Screenshot_4_Network_and_Gamepads.png"))
 
 im_top_raw = Image.open(LIVE_TOP_PATH) if os.path.exists(LIVE_TOP_PATH) else None
 im_bottom_raw = Image.open(LIVE_BOTTOM_PATH) if os.path.exists(LIVE_BOTTOM_PATH) else None
@@ -626,7 +628,7 @@ def main():
     
     # Run Soundtrack Synthesis
     print("==> Synthesizing Audio Track...")
-    synth_script = "/Users/jordanallison/.gemini/antigravity/scratch/ipad-jb/synthesize_soundtrack.py"
+    synth_script = os.path.join(BASE_DIR, "synthesize_soundtrack.py")
     os.system(f"python3 '{synth_script}'")
     
     audio_path = "/tmp/master_soundtrack_with_voice.wav"
@@ -650,15 +652,12 @@ def main():
         sz_mb = os.path.getsize(FINAL_VIDEO) / (1024 * 1024)
         print(f"==> SUCCESS: Final Showcase Video saved to {FINAL_VIDEO} ({sz_mb:.2f} MB)")
         
-        # Copy to Desktop, Downloads, and Artifacts
-        desktop_dst = "/Users/jordanallison/Desktop/AntiLagShield_Showcase.mp4"
-        downloads_dst = "/Users/jordanallison/Downloads/AntiLagShield_Showcase.mp4"
-        artifact_dst = "/Users/jordanallison/.gemini/antigravity/brain/58a92e58-afdd-43ff-a171-1e809caa3c0b/AntiLagShield_Showcase.mp4"
+        desktop_dst = os.path.join(HOME_DIR, "Desktop", "AntiLagShield_Showcase.mp4")
+        downloads_dst = os.path.join(HOME_DIR, "Downloads", "AntiLagShield_Showcase.mp4")
         
         os.system(f"cp -f '{FINAL_VIDEO}' '{desktop_dst}'")
         os.system(f"cp -f '{FINAL_VIDEO}' '{downloads_dst}'")
-        os.system(f"cp -f '{FINAL_VIDEO}' '{artifact_dst}'")
-        print("==> Copied to Desktop, Downloads, and Artifacts.")
+        print("==> Copied to Desktop and Downloads.")
     else:
         print("ERROR: Final video generation failed!")
 

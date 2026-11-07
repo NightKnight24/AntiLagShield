@@ -43,7 +43,9 @@ font_h2 = get_font(FONT_ARIAL_BOLD, 34)
 font_badge = get_font(FONT_ARIAL_BOLD, 26)
 font_mono = get_font(FONT_MONO, 24)
 
-LIVE_TOP_PATH = "/Users/jordanallison/.gemini/antigravity/brain/58a92e58-afdd-43ff-a171-1e809caa3c0b/antilag_live_top.png"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+HOME_DIR = os.path.expanduser("~")
+LIVE_TOP_PATH = os.environ.get("ALS_LIVE_TOP", os.path.join(BASE_DIR, "assets", "Screenshot_1_Live_Telemetry.png"))
 raw_ipad_img = Image.open(LIVE_TOP_PATH) if os.path.exists(LIVE_TOP_PATH) else None
 
 def draw_text_with_outline(draw, pos, text, font, fill_color, outline_color=(0, 0, 0), outline_width=4):
@@ -242,12 +244,10 @@ def main():
     t2 = generate_thumbnail_2()
     
     paths = [
-        ("/Users/jordanallison/Desktop/AntiLagShield_Thumbnail_1.png", t1),
-        ("/Users/jordanallison/Downloads/AntiLagShield_Thumbnail_1.png", t1),
-        ("/Users/jordanallison/.gemini/antigravity/brain/58a92e58-afdd-43ff-a171-1e809caa3c0b/AntiLagShield_Thumbnail_1.png", t1),
-        ("/Users/jordanallison/Desktop/AntiLagShield_Thumbnail_2.png", t2),
-        ("/Users/jordanallison/Downloads/AntiLagShield_Thumbnail_2.png", t2),
-        ("/Users/jordanallison/.gemini/antigravity/brain/58a92e58-afdd-43ff-a171-1e809caa3c0b/AntiLagShield_Thumbnail_2.png", t2),
+        (os.path.join(HOME_DIR, "Desktop", "AntiLagShield_Thumbnail_1.png"), t1),
+        (os.path.join(HOME_DIR, "Downloads", "AntiLagShield_Thumbnail_1.png"), t1),
+        (os.path.join(HOME_DIR, "Desktop", "AntiLagShield_Thumbnail_2.png"), t2),
+        (os.path.join(HOME_DIR, "Downloads", "AntiLagShield_Thumbnail_2.png"), t2),
     ]
     
     for path, img in paths:

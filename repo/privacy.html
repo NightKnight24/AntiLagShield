@@ -43,7 +43,7 @@
 
         <h2>2. Local On-Device Processing</h2>
         <ul>
-            <li><strong>Network Gateway Locking:</strong> Discovered router IP and MAC addresses are stored exclusively in local files (<code>/var/jb/etc/antilag_gateway.conf</code>) to bind Darwin's kernel ARP cache against LAN spoofing. No network identifiers are ever sent off your device.</li>
+            <li><strong>Network Gateway Locking:</strong> Optional custom router IP and MAC overrides are stored exclusively on-device in <code>/var/mobile/Library/Preferences/com.nightknight.antilagshield.plist</code> to bind Darwin's kernel ARP cache. No network identifiers are ever sent off your device.</li>
             <li><strong>Latency Telemetry:</strong> Ping latency tests to <code>1.1.1.1</code> and your gateway measure round-trip packet response times locally on demand.</li>
             <li><strong>Flash Storage Cleaner:</strong> Purges stale crash dumps (<code>.ips</code>) and WebKit temp files directly on local NAND flash. No files or personal documents are accessed or uploaded.</li>
             <li><strong>Turbo UI:</strong> Adjusts Darwin accessibility preferences locally to bypass GPU blur shaders.</li>

@@ -8,9 +8,11 @@
 import os, math
 from PIL import Image, ImageDraw, ImageFont
 
-ASSETS_DIR = "/Users/jordanallison/.gemini/antigravity/scratch/ipad-jb/assets"
-DESKTOP_DIR = "/Users/jordanallison/Desktop/Media_Assets"
-DOWNLOADS_DIR = "/Users/jordanallison/Downloads/Media_Assets"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+HOME_DIR = os.path.expanduser("~")
+ASSETS_DIR = os.path.join(BASE_DIR, "assets")
+DESKTOP_DIR = os.path.join(HOME_DIR, "Desktop", "Media_Assets")
+DOWNLOADS_DIR = os.path.join(HOME_DIR, "Downloads", "Media_Assets")
 
 for d in [ASSETS_DIR, DESKTOP_DIR, DOWNLOADS_DIR]:
     os.makedirs(d, exist_ok=True)
@@ -110,7 +112,7 @@ def create_media_banner():
     draw.line([(0, h - 1), (w, h - 1)], fill=CYAN, width=3)
     
     # Load and place high-res app icon on left
-    icon_p = "/Users/jordanallison/.gemini/antigravity/scratch/ipad-jb/repo/icon.png"
+    icon_p = os.path.join(BASE_DIR, "repo", "icon.png")
     if os.path.exists(icon_p):
         icon_img = Image.open(icon_p).convert("RGBA").resize((380, 380), Image.Resampling.LANCZOS)
         # Add glow rounded border behind icon
@@ -123,25 +125,25 @@ def create_media_banner():
     # Badge
     badge_w, badge_h = 370, 38
     draw_rounded_rect(draw, [content_x, 110, content_x + badge_w, 110 + badge_h], 19, fill=(16, 45, 40), outline=GREEN, width=2)
-    draw_centered_text(draw, "● OFFICIAL RELEASE • v3.8", font_h3, GREEN, content_x + badge_w // 2, 116)
+    draw_centered_text(draw, "● OFFICIAL RELEASE • v1.0.0", font_h3, GREEN, content_x + badge_w // 2, 116)
     
     # Title
-    draw.text((content_x, 165), "ANTI-LAG SHIELD PRO", font=font_hero, fill=WHITE)
+    draw.text((content_x, 165), "ANTI-LAG SHIELD", font=font_hero, fill=WHITE)
     
     # Accent Line
     draw.line([(content_x, 248), (content_x + 650, 248)], fill=CYAN, width=3)
     
     # Subtitles
-    draw.text((content_x, 265), "Universal Low-Latency Network Sentinel & Device Revival", font=font_h2, fill=CYAN)
-    draw.text((content_x, 315), "Engineered for All 64-Bit iOS & iPadOS Devices (iOS 12.0 – 18.x)", font=font_body, fill=GRAY)
+    draw.text((content_x, 265), "XNU Socket Buffer & Latency Controller for iPadOS & iOS", font=font_h2, fill=CYAN)
+    draw.text((content_x, 315), "Built for 64-Bit arm64 Devices (iOS 12.0 – 18.x)", font=font_body, fill=GRAY)
     
     # Feature Badges
     pills = [
-        ("🚀 Turbo UI (0ms)", GREEN),
-        ("🧹 Flash Cleaner", CYAN),
-        ("🔒 Kernel Shield", YELLOW),
-        ("🕹️ Gamepad VIP", PURPLE),
-        ("⚡ Stremio VIP", RED)
+        ("Turbo UI", GREEN),
+        ("Cache Cleaner", CYAN),
+        ("Static ARP", YELLOW),
+        ("Gamepad Priority", PURPLE),
+        ("4MB Buffers", RED)
     ]
     px = content_x
     for p_text, col in pills:
@@ -151,8 +153,8 @@ def create_media_banner():
         px += pw + 18
         
     # Developer Credit
-    draw.text((content_x, 465), "Author: Jordan Allison (NightKnight24) • Open-Source on GitHub", font=font_small, fill=MUTED)
-    draw.text((content_x, 495), "Supports iOS & iPadOS 12.0 – 17.x • Rootless (arm64)", font=font_mono_small, fill=CYAN)
+    draw.text((content_x, 465), "Author: NightKnight24 • Open-Source on GitHub", font=font_small, fill=MUTED)
+    draw.text((content_x, 495), "Supports iOS & iPadOS 12.0 – 18.x • Rootless & Rootful (arm64)", font=font_mono_small, fill=CYAN)
     
     return img
 

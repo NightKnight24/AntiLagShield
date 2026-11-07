@@ -120,6 +120,6 @@ shield_ctl config auto
 
 ## 📄 License & Credits
 
-* **Author:** Jordan Allison ([@NightKnight24](https://github.com/NightKnight24))
+* **Author:** [@NightKnight24](https://github.com/NightKnight24)
 * **License:** [MIT License](license.html)
 * **Feedback & Discussions:** Check the [YouTube Video Comments](https://www.youtube.com/@NightKnight24) or open an issue on GitHub!

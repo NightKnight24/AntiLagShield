@@ -175,26 +175,26 @@ html_content = """<!DOCTYPE html>
 
         <div class="card">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                <h3 style="margin: 0;">Anti-Lag Shield Pro</h3>
-                <span class="badge">v3.8 • UNIVERSAL</span>
+                <h3 style="margin: 0;">Anti-Lag Shield</h3>
+                <span class="badge">v1.0.0 • ARM64</span>
             </div>
             <p style="color: #a0aec0; font-size: 14px; line-height: 1.5;">
-                Universal Network Sentinel, Device Revival & Low-Latency Acceleration Suite for all 64-bit iOS & iPadOS devices (iOS 12.0 – 18.x).
+                XNU socket buffer, TCP delayed-ACK, and radio coexistence tuning suite for 64-bit iOS &amp; iPadOS devices (iOS 12.0 – 18.x).
             </p>
             <p style="color: #718096; font-size: 12px;">
-                • Turbo UI Mode (0ms touch, GPU blur bypass)<br>
-                • Deep Flash Storage & Cache Cleaner<br>
-                • Zero-Trust Hardware Gateway Lock & Anti-Spoof Sentinel<br>
-                • Bluetooth Gamepad VIP Scheduling (Xbox, PS5, Switch)
+                • Control Center &amp; Notification Center quick-toggles<br>
+                • Static Gateway ARP lock &amp; AWDL scan suppression<br>
+                • Turbo UI compositor toggle &amp; safe diagnostic log cleaner<br>
+                • Media, streaming &amp; gamepad scheduler prioritization
             </p>
         </div>
 
         <div class="card">
             <h4 style="margin-top: 0; color: #a0aec0;">INSTALL ON YOUR DEVICE:</h4>
-            <a class="btn" href="sileo://source/https://nightknight24.github.io/repo/">⚡ Add to Sileo</a>
-            <a class="btn btn-zebra" href="zbra://sources/add/https://nightknight24.github.io/repo/">🦓 Add to Zebra</a>
-            <a class="btn btn-cydia" href="cydia://url/https://cydia.saurik.com/api/share#?source=https://nightknight24.github.io/repo/">📦 Add to Cydia</a>
-            <a class="btn btn-troll" href="AntiLagShield_v3.8.tipa">📱 Download TrollStore (.tipa)</a>
+            <a class="btn" href="sileo://source/https://nightknight24.github.io/repo/">Add to Sileo</a>
+            <a class="btn btn-zebra" href="zbra://sources/add/https://nightknight24.github.io/repo/">Add to Zebra</a>
+            <a class="btn btn-cydia" href="cydia://url/https://cydia.saurik.com/api/share#?source=https://nightknight24.github.io/repo/">Add to Cydia</a>
+            <a class="btn btn-troll" href="debs/com.nightknight.antilagshield_1.0.0_iphoneos-arm64.deb">Direct .deb Download (v1.0.0)</a>
         </div>
 
         <div style="text-align: center; color: #718096; font-size: 13px;">

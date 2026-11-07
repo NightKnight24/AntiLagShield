@@ -1,93 +1,217 @@
-#import <UserNotifications/UserNotifications.h>
 #import <UIKit/UIKit.h>
-#import <unistd.h>
-#import <sys/types.h>
-#import <spawn.h>
-#import <mach/mach.h>
-#import <mach/mach_host.h>
-#import <dlfcn.h>
+#include <dlfcn.h>
+#include <fcntl.h>
+#include <ifaddrs.h>
+#include <mach/mach.h>
+#include <mach/mach_host.h>
+#include <net/if.h>
+#include <notify.h>
+#include <spawn.h>
+#include <sys/sysctl.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 extern char **environ;
+
+static const char *const kStateChangedNotify = "com.nightknight.antilagshield.statechanged";
+static const char *const kShowBannerNotify = "com.nightknight.antilagshield.showbanner";
 
 typedef void (*AXSetBoolFn)(BOOL);
 typedef BOOL (*AXGetBoolFn)(void);
 
-static void set_turbo_ui(BOOL enabled) {
+static BOOL set_turbo_ui(BOOL enabled) {
     void *handle = dlopen("/System/Library/PrivateFrameworks/AccessibilityUtilities.framework/AccessibilityUtilities", RTLD_LAZY);
-    if (handle) {
-        AXSetBoolFn setMotion = (AXSetBoolFn)dlsym(handle, "_AXSSetReduceMotionEnabled");
-        AXSetBoolFn setContrast = (AXSetBoolFn)dlsym(handle, "_AXSSetEnhanceBackgroundContrastEnabled");
-        if (setMotion) setMotion(enabled);
-        if (setContrast) setContrast(enabled);
-        dlclose(handle);
-    }
+    if (!handle) return NO;
+
+    AXSetBoolFn setMotion = (AXSetBoolFn)dlsym(handle, "_AXSSetReduceMotionEnabled");
+    AXSetBoolFn setContrast = (AXSetBoolFn)dlsym(handle, "_AXSSetEnhanceBackgroundContrastEnabled");
+    AXGetBoolFn getMotion = (AXGetBoolFn)dlsym(handle, "_AXSReduceMotionEnabled");
+
+    if (setMotion) setMotion(enabled);
+    if (setContrast) setContrast(enabled);
+    BOOL current = getMotion ? getMotion() : NO;
+    dlclose(handle);
+    return (current == enabled);
 }
 
 static BOOL get_turbo_ui_status(void) {
     void *handle = dlopen("/System/Library/PrivateFrameworks/AccessibilityUtilities.framework/AccessibilityUtilities", RTLD_LAZY);
-    if (handle) {
-        AXGetBoolFn getMotion = (AXGetBoolFn)dlsym(handle, "_AXSReduceMotionEnabled");
-        BOOL res = getMotion ? getMotion() : NO;
-        dlclose(handle);
-        return res;
-    }
-    return NO;
+    if (!handle) return NO;
+
+    AXGetBoolFn getMotion = (AXGetBoolFn)dlsym(handle, "_AXSReduceMotionEnabled");
+    BOOL res = getMotion ? getMotion() : NO;
+    dlclose(handle);
+    return res;
 }
 
-static NSString *get_shield_ctl_path(void) {
-    if ([[NSFileManager defaultManager] fileExistsAtPath:@"/var/jb/usr/bin/shield_ctl"]) {
-        return @"/var/jb/usr/bin/shield_ctl";
+static const char *shield_ctl_bin(void) {
+    if (access("/var/jb/usr/bin/shield_ctl", X_OK) == 0) {
+        return "/var/jb/usr/bin/shield_ctl";
     }
-    return @"/usr/bin/shield_ctl";
+    return "/usr/bin/shield_ctl";
 }
 
-static void run_cmd(NSString *command) {
-    pid_t pid;
-    const char *sh = "/var/jb/usr/bin/bash";
-    if (access(sh, X_OK) != 0) sh = "/usr/bin/bash";
-    if (access(sh, X_OK) != 0) sh = "/bin/bash";
-    if (access(sh, X_OK) != 0) sh = "/var/jb/usr/bin/sh";
-    if (access(sh, X_OK) != 0) sh = "/bin/sh";
-    
-    NSString *fullCmd = [NSString stringWithFormat:@"export PATH=\"/var/jb/usr/bin:/var/jb/bin:/var/jb/usr/sbin:/var/jb/sbin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH\"; %@", command];
-    const char *argv[] = {sh, "-c", [fullCmd UTF8String], NULL};
-    posix_spawn(&pid, sh, NULL, NULL, (char * const *)argv, environ);
-    int status;
+static const char *ping_bin(void) {
+    if (access("/var/jb/sbin/ping", X_OK) == 0) return "/var/jb/sbin/ping";
+    if (access("/sbin/ping", X_OK) == 0) return "/sbin/ping";
+    return "/usr/sbin/ping";
+}
+
+static NSString *run_exec_capture(const char *bin, NSArray<NSString *> *args, int *outExitCode) {
+    if (!bin || access(bin, X_OK) != 0) {
+        if (outExitCode) *outExitCode = 127;
+        return @"";
+    }
+
+    int pipefd[2];
+    if (pipe(pipefd) != 0) {
+        if (outExitCode) *outExitCode = -1;
+        return @"";
+    }
+
+    posix_spawn_file_actions_t actions;
+    posix_spawn_file_actions_init(&actions);
+    posix_spawn_file_actions_adddup2(&actions, pipefd[1], STDOUT_FILENO);
+    posix_spawn_file_actions_adddup2(&actions, pipefd[1], STDERR_FILENO);
+    posix_spawn_file_actions_addclose(&actions, pipefd[0]);
+    posix_spawn_file_actions_addclose(&actions, pipefd[1]);
+
+    size_t argc = args.count + 1;
+    char **argv = calloc(argc + 1, sizeof(char *));
+    argv[0] = strdup(bin);
+    for (size_t i = 0; i < args.count; i++) {
+        argv[i + 1] = strdup(args[i].UTF8String);
+    }
+    argv[argc] = NULL;
+
+    pid_t pid = 0;
+    int err = posix_spawn(&pid, bin, &actions, NULL, argv, environ);
+    posix_spawn_file_actions_destroy(&actions);
+    close(pipefd[1]);
+
+    for (size_t i = 0; i < argc; i++) {
+        free(argv[i]);
+    }
+    free(argv);
+
+    if (err != 0) {
+        close(pipefd[0]);
+        if (outExitCode) *outExitCode = err;
+        return @"";
+    }
+
+    NSMutableData *data = [NSMutableData data];
+    char buf[1024];
+    ssize_t n;
+    while ((n = read(pipefd[0], buf, sizeof(buf))) > 0) {
+        [data appendBytes:buf length:(NSUInteger)n];
+    }
+    close(pipefd[0]);
+
+    int status = 0;
     waitpid(pid, &status, 0);
+    if (outExitCode) {
+        *outExitCode = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+    }
+
+    return [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] ?: @"";
 }
 
-static NSUInteger get_free_memory_mb(void) {
+static NSUInteger get_available_memory_mb(void) {
     mach_port_t host_port = mach_host_self();
-    mach_msg_type_number_t host_size = sizeof(vm_statistics_data_t) / sizeof(integer_t);
-    vm_size_t pagesize;
-    vm_statistics_data_t vm_stat;
-    
+    vm_size_t pagesize = 0;
     host_page_size(host_port, &pagesize);
-    if (host_statistics(host_port, HOST_VM_INFO, (host_info_t)&vm_stat, &host_size) != KERN_SUCCESS) {
+
+    vm_statistics64_data_t vm_stat;
+    mach_msg_type_number_t count = HOST_VM_INFO64_COUNT;
+    if (host_statistics64(host_port, HOST_VM_INFO64, (host_info64_t)&vm_stat, &count) != KERN_SUCCESS) {
         return 0;
     }
-    
-    natural_t mem_free = vm_stat.free_count * (natural_t)pagesize;
-    return mem_free / (1024 * 1024);
+
+    uint64_t freePages = (uint64_t)vm_stat.free_count + (uint64_t)vm_stat.speculative_count;
+    uint64_t bytes = freePages * (uint64_t)pagesize;
+    return (NSUInteger)(bytes / (1024ULL * 1024ULL));
 }
 
-@interface AppDelegate : UIResponder <UIApplicationDelegate, UNUserNotificationCenterDelegate>
-@property (strong, nonatomic) UIWindow *window;
-+ (void)updateNotificationBannerWithMode:(NSString *)mode;
-@end
+static BOOL read_sysctl_int(const char *name, int *outVal) {
+    int val = 0;
+    size_t len = sizeof(val);
+    if (sysctlbyname(name, &val, &len, NULL, 0) != 0) {
+        return NO;
+    }
+    if (outVal) *outVal = val;
+    return YES;
+}
+
+static BOOL is_interface_up(const char *ifname, BOOL *outExists) {
+    struct ifaddrs *ifap = NULL;
+    if (outExists) *outExists = NO;
+    if (getifaddrs(&ifap) != 0) return NO;
+
+    BOOL isUp = NO;
+    for (struct ifaddrs *ifa = ifap; ifa != NULL; ifa = ifa->ifa_next) {
+        if (ifa->ifa_name && strcmp(ifa->ifa_name, ifname) == 0) {
+            if (outExists) *outExists = YES;
+            if (ifa->ifa_flags & IFF_UP) {
+                isUp = YES;
+                break;
+            }
+        }
+    }
+    freeifaddrs(ifap);
+    return isUp;
+}
+
+static int query_iokit_battery_percent(BOOL *outCharging) {
+    if (outCharging) *outCharging = NO;
+    void *iokit = dlopen("/System/Library/Frameworks/IOKit.framework/IOKit", RTLD_LAZY);
+    if (!iokit) return -1;
+
+    typedef CFTypeRef (*IOPSCopyPowerSourcesInfoFn)(void);
+    typedef CFArrayRef (*IOPSCopyPowerSourcesListFn)(CFTypeRef);
+    typedef CFDictionaryRef (*IOPSGetPowerSourceDescriptionFn)(CFTypeRef, CFTypeRef);
+
+    IOPSCopyPowerSourcesInfoFn copyInfo = (IOPSCopyPowerSourcesInfoFn)dlsym(iokit, "IOPSCopyPowerSourcesInfo");
+    IOPSCopyPowerSourcesListFn copyList = (IOPSCopyPowerSourcesListFn)dlsym(iokit, "IOPSCopyPowerSourcesList");
+    IOPSGetPowerSourceDescriptionFn getDesc = (IOPSGetPowerSourceDescriptionFn)dlsym(iokit, "IOPSGetPowerSourceDescription");
+
+    int pct = -1;
+    if (copyInfo && copyList && getDesc) {
+        CFTypeRef blob = copyInfo();
+        if (blob) {
+            CFArrayRef list = copyList(blob);
+            if (list) {
+                if (CFArrayGetCount(list) > 0) {
+                    CFTypeRef ps = CFArrayGetValueAtIndex(list, 0);
+                    NSDictionary *desc = (__bridge NSDictionary *)getDesc(blob, ps);
+                    NSNumber *cur = desc[@"Current Capacity"];
+                    NSNumber *max = desc[@"Max Capacity"];
+                    NSNumber *chg = desc[@"Is Charging"];
+                    if (outCharging && chg) *outCharging = chg.boolValue;
+                    if (cur && max && max.intValue > 0) {
+                        pct = (int)lround(((double)cur.intValue / (double)max.intValue) * 100.0);
+                    }
+                }
+                CFRelease(list);
+            }
+            CFRelease(blob);
+        }
+    }
+    dlclose(iokit);
+    return pct;
+}
 
 @interface ShieldViewController : UIViewController
 
 @property (nonatomic, strong) UIScrollView *scrollView;
 
-// Header Views
 @property (nonatomic, strong) UILabel *iconLabel;
 @property (nonatomic, strong) UILabel *titleLabel;
 @property (nonatomic, strong) UILabel *subLabel;
 @property (nonatomic, strong) UILabel *statusBadge;
 @property (nonatomic, strong) UISegmentedControl *modeControl;
 
-// Card 1: Telemetry & RAM
 @property (nonatomic, strong) UIView *telemetryCard;
 @property (nonatomic, strong) UILabel *rTitle;
 @property (nonatomic, strong) UILabel *routerPingLabel;
@@ -99,7 +223,6 @@ static NSUInteger get_free_memory_mb(void) {
 @property (nonatomic, strong) UILabel *ramLabel;
 @property (nonatomic, strong) UIButton *purgeButton;
 
-// Card 2: Device Revival & Hardware Acceleration
 @property (nonatomic, strong) UIView *revivalCard;
 @property (nonatomic, strong) UILabel *revivalTitle;
 @property (nonatomic, strong) UILabel *turboTitle;
@@ -110,28 +233,22 @@ static NSUInteger get_free_memory_mb(void) {
 @property (nonatomic, strong) UILabel *jIcon;
 @property (nonatomic, strong) UILabel *jetsamStatusLabel;
 
-// Card 3: Defenses
 @property (nonatomic, strong) UIView *defCard;
 @property (nonatomic, strong) UIButton *cfgBtn;
 @property (nonatomic, strong) NSMutableArray<UILabel *> *defTLabels;
 @property (nonatomic, strong) NSMutableArray<UILabel *> *defVLabels;
-@property (nonatomic, strong) UILabel *gatewayLabel;
-@property (nonatomic, strong) UILabel *tsoLabel;
-@property (nonatomic, strong) UILabel *bufferLabel;
 
-// Card 4: VIP Apps & Gamepads
 @property (nonatomic, strong) UIView *vipCard;
 @property (nonatomic, strong) UILabel *vipTitle;
 @property (nonatomic, strong) UILabel *vipList;
 @property (nonatomic, strong) UILabel *vipSub;
 
-// Card 5: Daemon
 @property (nonatomic, strong) UIView *daemonCard;
 @property (nonatomic, strong) UILabel *dTitle;
 @property (nonatomic, strong) UILabel *daemonStatusLabel;
 @property (nonatomic, strong) UISwitch *daemonSwitch;
+@property (nonatomic, strong) UIButton *bannerButton;
 
-// Card 6: GitHub & Developer
 @property (nonatomic, strong) UIView *gitCard;
 @property (nonatomic, strong) UILabel *gitTitle;
 @property (nonatomic, strong) UIButton *gitButton;
@@ -141,37 +258,60 @@ static NSUInteger get_free_memory_mb(void) {
 @property (nonatomic, strong) UILabel *arrowLabel;
 @property (nonatomic, strong) NSString *githubURL;
 
-// Footer
 @property (nonatomic, strong) UILabel *footerLabel;
 
 @property (nonatomic, strong) NSTimer *telemetryTimer;
-- (void)captureLiveScreenshotPath:(NSString *)path scrollOffset:(CGFloat)offset;
+@property (nonatomic, copy) NSString *currentGatewayIP;
+@property (nonatomic, assign) int notifyToken;
+
+- (void)syncFromSystemState;
 
 @end
 
 @implementation ShieldViewController
 
+- (void)dealloc {
+    if (_notifyToken != 0) {
+        notify_cancel(_notifyToken);
+    }
+    [_telemetryTimer invalidate];
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
+}
+
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.view.backgroundColor = [UIColor colorWithRed:0.04 green:0.05 blue:0.08 alpha:1.0];
-    
+
     [UIDevice currentDevice].batteryMonitoringEnabled = YES;
     self.githubURL = @"https://github.com/NightKnight24";
-    
-    // Scroll View
+    self.currentGatewayIP = @"";
+
     self.scrollView = [[UIScrollView alloc] initWithFrame:self.view.bounds];
     self.scrollView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     self.scrollView.alwaysBounceVertical = YES;
     [self.view addSubview:self.scrollView];
-    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(handleExternalModeChange:) name:@"ShieldModeChangedExternally" object:nil];
-    
+
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(appWillEnterForeground)
+                                                 name:UIApplicationWillEnterForegroundNotification
+                                               object:nil];
+
+    __weak typeof(self) weakSelf = self;
+    int token = 0;
+    if (notify_register_dispatch(kStateChangedNotify, &token, dispatch_get_main_queue(), ^(int t) {
+        (void)t;
+        [weakSelf syncFromSystemState];
+    }) == NOTIFY_STATUS_OK) {
+        self.notifyToken = token;
+    }
+
     // Header
     self.iconLabel = [[UILabel alloc] init];
     self.iconLabel.text = @"🛡️";
-    self.iconLabel.font = [UIFont systemFontOfSize:46];
+    self.iconLabel.font = [UIFont systemFontOfSize:44];
     self.iconLabel.textAlignment = NSTextAlignmentCenter;
     [self.scrollView addSubview:self.iconLabel];
-    
+
     self.titleLabel = [[UILabel alloc] init];
     self.titleLabel.text = @"Anti-Lag Shield";
     self.titleLabel.font = [UIFont boldSystemFontOfSize:24];
@@ -182,40 +322,49 @@ static NSUInteger get_free_memory_mb(void) {
     [self.scrollView addSubview:self.titleLabel];
 
     self.subLabel = [[UILabel alloc] init];
-    self.subLabel.text = @"Network Latency & TCP Buffer Optimizer for iPadOS";
+    self.subLabel.text = @"XNU Socket Buffer & Latency Controller • v1.0.0";
     self.subLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
     self.subLabel.textColor = [UIColor colorWithRed:0.0 green:0.82 blue:0.95 alpha:0.9];
     self.subLabel.textAlignment = NSTextAlignmentCenter;
     self.subLabel.adjustsFontSizeToFitWidth = YES;
     self.subLabel.minimumScaleFactor = 0.70;
     [self.scrollView addSubview:self.subLabel];
-    
+
     self.statusBadge = [[UILabel alloc] init];
-    self.statusBadge.text = @"●  SENTINEL ACTIVE";
-    self.statusBadge.font = [UIFont boldSystemFontOfSize:13];
-    self.statusBadge.textColor = [UIColor colorWithRed:0.2 green:0.95 blue:0.4 alpha:1.0];
-    self.statusBadge.backgroundColor = [UIColor colorWithRed:0.06 green:0.22 blue:0.12 alpha:0.9];
+    self.statusBadge.text = @"●  CHECKING KERNEL STATE";
+    self.statusBadge.font = [UIFont boldSystemFontOfSize:12];
+    self.statusBadge.textColor = [UIColor colorWithWhite:0.75 alpha:1.0];
+    self.statusBadge.backgroundColor = [UIColor colorWithWhite:0.16 alpha:0.9];
     self.statusBadge.layer.cornerRadius = 16;
     self.statusBadge.clipsToBounds = YES;
     self.statusBadge.textAlignment = NSTextAlignmentCenter;
     self.statusBadge.adjustsFontSizeToFitWidth = YES;
     self.statusBadge.minimumScaleFactor = 0.8;
     [self.scrollView addSubview:self.statusBadge];
-    
-    NSArray *items = @[@"🎬 Streaming & Web VIP", @"🎮 Ultra-Low Latency"];
+
+    NSArray *items = @[@"Streaming", @"Gaming", @"Off"];
     self.modeControl = [[UISegmentedControl alloc] initWithItems:items];
     self.modeControl.selectedSegmentIndex = 0;
+    if (@available(iOS 13.0, *)) {
+        self.modeControl.selectedSegmentTintColor = [UIColor colorWithRed:0.14 green:0.32 blue:0.46 alpha:1.0];
+        [self.modeControl setTitleTextAttributes:@{NSForegroundColorAttributeName: [UIColor colorWithWhite:0.78 alpha:1.0],
+                                                   NSFontAttributeName: [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold]}
+                                        forState:UIControlStateNormal];
+        [self.modeControl setTitleTextAttributes:@{NSForegroundColorAttributeName: [UIColor whiteColor],
+                                                   NSFontAttributeName: [UIFont systemFontOfSize:13 weight:UIFontWeightBold]}
+                                        forState:UIControlStateSelected];
+    }
     [self.modeControl addTarget:self action:@selector(modeChanged:) forControlEvents:UIControlEventValueChanged];
     [self.scrollView addSubview:self.modeControl];
-    
-    // CARD 1: Telemetry
+
+    // Card 1: Telemetry & RAM
     self.telemetryCard = [[UIView alloc] init];
     self.telemetryCard.backgroundColor = [UIColor colorWithRed:0.08 green:0.10 blue:0.14 alpha:0.95];
     self.telemetryCard.layer.cornerRadius = 16;
     self.telemetryCard.layer.borderWidth = 1.0;
     self.telemetryCard.layer.borderColor = [UIColor colorWithRed:0.15 green:0.20 blue:0.28 alpha:1.0].CGColor;
     [self.scrollView addSubview:self.telemetryCard];
-    
+
     self.rTitle = [[UILabel alloc] init];
     self.rTitle.text = @"GATEWAY";
     self.rTitle.font = [UIFont systemFontOfSize:11 weight:UIFontWeightBold];
@@ -223,7 +372,7 @@ static NSUInteger get_free_memory_mb(void) {
     self.rTitle.adjustsFontSizeToFitWidth = YES;
     self.rTitle.minimumScaleFactor = 0.7;
     [self.telemetryCard addSubview:self.rTitle];
-    
+
     self.routerPingLabel = [[UILabel alloc] init];
     self.routerPingLabel.text = @"-- ms";
     self.routerPingLabel.font = [UIFont monospacedDigitSystemFontOfSize:17 weight:UIFontWeightBold];
@@ -231,15 +380,15 @@ static NSUInteger get_free_memory_mb(void) {
     self.routerPingLabel.adjustsFontSizeToFitWidth = YES;
     self.routerPingLabel.minimumScaleFactor = 0.7;
     [self.telemetryCard addSubview:self.routerPingLabel];
-    
+
     self.iTitle = [[UILabel alloc] init];
-    self.iTitle.text = @"INTERNET (1.1)";
+    self.iTitle.text = @"1.1.1.1 RTT";
     self.iTitle.font = [UIFont systemFontOfSize:11 weight:UIFontWeightBold];
     self.iTitle.textColor = [UIColor colorWithWhite:0.55 alpha:1.0];
     self.iTitle.adjustsFontSizeToFitWidth = YES;
     self.iTitle.minimumScaleFactor = 0.7;
     [self.telemetryCard addSubview:self.iTitle];
-    
+
     self.internetPingLabel = [[UILabel alloc] init];
     self.internetPingLabel.text = @"-- ms";
     self.internetPingLabel.font = [UIFont monospacedDigitSystemFontOfSize:17 weight:UIFontWeightBold];
@@ -255,15 +404,15 @@ static NSUInteger get_free_memory_mb(void) {
     self.bTitle.adjustsFontSizeToFitWidth = YES;
     self.bTitle.minimumScaleFactor = 0.7;
     [self.telemetryCard addSubview:self.bTitle];
-    
+
     self.batteryLabel = [[UILabel alloc] init];
-    self.batteryLabel.text = @"100%";
+    self.batteryLabel.text = @"--";
     self.batteryLabel.font = [UIFont monospacedDigitSystemFontOfSize:17 weight:UIFontWeightBold];
     self.batteryLabel.textColor = [UIColor colorWithRed:0.3 green:0.95 blue:0.45 alpha:1.0];
     self.batteryLabel.adjustsFontSizeToFitWidth = YES;
     self.batteryLabel.minimumScaleFactor = 0.7;
     [self.telemetryCard addSubview:self.batteryLabel];
-    
+
     self.mTitle = [[UILabel alloc] init];
     self.mTitle.text = @"FREE RAM";
     self.mTitle.font = [UIFont systemFontOfSize:11 weight:UIFontWeightBold];
@@ -271,7 +420,7 @@ static NSUInteger get_free_memory_mb(void) {
     self.mTitle.adjustsFontSizeToFitWidth = YES;
     self.mTitle.minimumScaleFactor = 0.7;
     [self.telemetryCard addSubview:self.mTitle];
-    
+
     self.ramLabel = [[UILabel alloc] init];
     self.ramLabel.text = @"-- MB";
     self.ramLabel.font = [UIFont monospacedDigitSystemFontOfSize:17 weight:UIFontWeightBold];
@@ -279,9 +428,9 @@ static NSUInteger get_free_memory_mb(void) {
     self.ramLabel.adjustsFontSizeToFitWidth = YES;
     self.ramLabel.minimumScaleFactor = 0.7;
     [self.telemetryCard addSubview:self.ramLabel];
-    
+
     self.purgeButton = [UIButton buttonWithType:UIButtonTypeSystem];
-    [self.purgeButton setTitle:@"⚡ Clean Inactive RAM (Purge Cache)" forState:UIControlStateNormal];
+    [self.purgeButton setTitle:@"Purge Inactive Memory Pages" forState:UIControlStateNormal];
     self.purgeButton.titleLabel.font = [UIFont boldSystemFontOfSize:14];
     self.purgeButton.titleLabel.adjustsFontSizeToFitWidth = YES;
     self.purgeButton.titleLabel.minimumScaleFactor = 0.8;
@@ -292,51 +441,45 @@ static NSUInteger get_free_memory_mb(void) {
     self.purgeButton.layer.borderColor = [UIColor colorWithRed:0.25 green:0.65 blue:0.4 alpha:0.5].CGColor;
     [self.purgeButton addTarget:self action:@selector(purgeRAMTapped:) forControlEvents:UIControlEventTouchUpInside];
     [self.telemetryCard addSubview:self.purgeButton];
-    
-    // CARD 2: Revival
+
+    // Card 2: UI Acceleration & Storage
     self.revivalCard = [[UIView alloc] init];
     self.revivalCard.backgroundColor = [UIColor colorWithRed:0.08 green:0.10 blue:0.14 alpha:0.95];
     self.revivalCard.layer.cornerRadius = 16;
     self.revivalCard.layer.borderWidth = 1.0;
     self.revivalCard.layer.borderColor = [UIColor colorWithRed:0.20 green:0.28 blue:0.38 alpha:1.0].CGColor;
     [self.scrollView addSubview:self.revivalCard];
-    
+
     self.revivalTitle = [[UILabel alloc] init];
-    self.revivalTitle.text = @"⚡ HARDWARE ACCELERATION & STORAGE";
+    self.revivalTitle.text = @"COMPOSITOR & STORAGE MAINTENANCE";
     self.revivalTitle.font = [UIFont systemFontOfSize:11 weight:UIFontWeightBold];
     self.revivalTitle.textColor = [UIColor colorWithRed:0.0 green:0.85 blue:1.0 alpha:1.0];
     self.revivalTitle.adjustsFontSizeToFitWidth = YES;
     self.revivalTitle.minimumScaleFactor = 0.75;
     [self.revivalCard addSubview:self.revivalTitle];
-    
+
     self.turboTitle = [[UILabel alloc] init];
-    self.turboTitle.text = @"🚀 Turbo UI Mode (0ms Touch & No GPU Blur)";
+    self.turboTitle.text = @"Turbo UI (Disable SpringBoard Blur & Motion)";
     self.turboTitle.font = [UIFont boldSystemFontOfSize:14];
     self.turboTitle.textColor = [UIColor whiteColor];
     self.turboTitle.adjustsFontSizeToFitWidth = YES;
     self.turboTitle.minimumScaleFactor = 0.75;
     [self.revivalCard addSubview:self.turboTitle];
-    
+
     self.turboStatusLabel = [[UILabel alloc] init];
-    self.turboStatusLabel.text = @"Off: Default Gaussian blurs & spring animations active.";
     self.turboStatusLabel.font = [UIFont systemFontOfSize:11 weight:UIFontWeightMedium];
-    self.turboStatusLabel.textColor = [UIColor colorWithWhite:0.6 alpha:1.0];
     self.turboStatusLabel.numberOfLines = 2;
     self.turboStatusLabel.adjustsFontSizeToFitWidth = YES;
     self.turboStatusLabel.minimumScaleFactor = 0.75;
     [self.revivalCard addSubview:self.turboStatusLabel];
-    
+
     self.turboSwitch = [[UISwitch alloc] init];
-    self.turboSwitch.on = get_turbo_ui_status();
-    if (self.turboSwitch.on) {
-        self.turboStatusLabel.text = @"On: GPU blur shaders bypassed • 0ms instant touch response.";
-        self.turboStatusLabel.textColor = [UIColor colorWithRed:0.2 green:0.95 blue:0.4 alpha:1.0];
-    }
     [self.turboSwitch addTarget:self action:@selector(turboSwitchChanged:) forControlEvents:UIControlEventValueChanged];
     [self.revivalCard addSubview:self.turboSwitch];
-    
+    [self refreshTurboUIState];
+
     self.cleanStorageButton = [UIButton buttonWithType:UIButtonTypeSystem];
-    [self.cleanStorageButton setTitle:@"🧹 Deep Clean Flash Storage & Stale Caches" forState:UIControlStateNormal];
+    [self.cleanStorageButton setTitle:@"Clear Diagnostic Logs & Expired Caches" forState:UIControlStateNormal];
     self.cleanStorageButton.titleLabel.font = [UIFont boldSystemFontOfSize:13];
     self.cleanStorageButton.titleLabel.adjustsFontSizeToFitWidth = YES;
     self.cleanStorageButton.titleLabel.minimumScaleFactor = 0.75;
@@ -347,36 +490,36 @@ static NSUInteger get_free_memory_mb(void) {
     self.cleanStorageButton.layer.borderColor = [UIColor colorWithRed:0.2 green:0.5 blue:0.7 alpha:0.4].CGColor;
     [self.cleanStorageButton addTarget:self action:@selector(cleanStorageTapped:) forControlEvents:UIControlEventTouchUpInside];
     [self.revivalCard addSubview:self.cleanStorageButton];
-    
+
     self.jetsamRow = [[UIView alloc] init];
     self.jetsamRow.backgroundColor = [UIColor colorWithRed:0.05 green:0.07 blue:0.10 alpha:0.8];
     self.jetsamRow.layer.cornerRadius = 10;
     [self.revivalCard addSubview:self.jetsamRow];
-    
+
     self.jIcon = [[UILabel alloc] init];
-    self.jIcon.text = @"🔒";
-    self.jIcon.font = [UIFont systemFontOfSize:16];
+    self.jIcon.text = @"•";
+    self.jIcon.font = [UIFont boldSystemFontOfSize:20];
+    self.jIcon.textAlignment = NSTextAlignmentCenter;
+    self.jIcon.textColor = [UIColor colorWithRed:0.3 green:0.95 blue:0.45 alpha:1.0];
     [self.jetsamRow addSubview:self.jIcon];
-    
+
     self.jetsamStatusLabel = [[UILabel alloc] init];
-    self.jetsamStatusLabel.text = @"Anti-Jetsam Kernel Shield Active (30s Grace Period)\nSafari tabs & background apps protected from termination.";
     self.jetsamStatusLabel.numberOfLines = 2;
     self.jetsamStatusLabel.font = [UIFont systemFontOfSize:11 weight:UIFontWeightMedium];
-    self.jetsamStatusLabel.textColor = [UIColor colorWithRed:0.3 green:0.95 blue:0.45 alpha:1.0];
     self.jetsamStatusLabel.adjustsFontSizeToFitWidth = YES;
     self.jetsamStatusLabel.minimumScaleFactor = 0.75;
     [self.jetsamRow addSubview:self.jetsamStatusLabel];
-    
-    // CARD 3: Active Defenses
+
+    // Card 3: Live XNU Kernel Parameters
     self.defCard = [[UIView alloc] init];
     self.defCard.backgroundColor = [UIColor colorWithRed:0.08 green:0.10 blue:0.14 alpha:0.95];
     self.defCard.layer.cornerRadius = 16;
     self.defCard.layer.borderWidth = 1.0;
     self.defCard.layer.borderColor = [UIColor colorWithRed:0.15 green:0.20 blue:0.28 alpha:1.0].CGColor;
     [self.scrollView addSubview:self.defCard];
-    
+
     self.cfgBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    [self.cfgBtn setTitle:@"⚙️ Config Gateway" forState:UIControlStateNormal];
+    [self.cfgBtn setTitle:@"Gateway Config" forState:UIControlStateNormal];
     self.cfgBtn.titleLabel.font = [UIFont systemFontOfSize:11 weight:UIFontWeightBold];
     self.cfgBtn.titleLabel.adjustsFontSizeToFitWidth = YES;
     self.cfgBtn.titleLabel.minimumScaleFactor = 0.75;
@@ -385,132 +528,130 @@ static NSUInteger get_free_memory_mb(void) {
     self.cfgBtn.layer.cornerRadius = 8;
     [self.cfgBtn addTarget:self action:@selector(configGatewayTapped:) forControlEvents:UIControlEventTouchUpInside];
     [self.defCard addSubview:self.cfgBtn];
-    
+
     self.defTLabels = [NSMutableArray array];
     self.defVLabels = [NSMutableArray array];
-    NSArray *rows = @[
-        @{@"t": @"Gateway Static ARP", @"v": @"Resolving Gateway on en0..."},
-        @{@"t": @"TCP Delayed ACK Rate", @"v": @"Adaptive RFC 5681 (Standard)"},
-        @{@"t": @"TCP Segmentation Offload (TSO)", @"v": @"Hardware TSO Enabled"},
-        @{@"t": @"Receive & Send Socket Buffers", @"v": @"4 MB Dynamic Buffer"},
-        @{@"t": @"Connection Queue Backlog", @"v": @"somaxconn: 512 Sockets"},
-        @{@"t": @"Kernel Memory Eviction", @"v": @"Protected (purge_on_warning=0)"},
-        @{@"t": @"Wi-Fi QoS Packet Handling", @"v": @"Standard WMM Fast-Path"}
+    NSArray<NSString *> *rowTitles = @[
+        @"Gateway ARP Table",
+        @"TCP Delayed ACK (net.inet.tcp.delayed_ack)",
+        @"TCP Segmentation Offload (net.inet.tcp.tso)",
+        @"Socket Auto-Buffers (autorcvbufmax / recvspace)",
+        @"Listen Backlog (kern.ipc.somaxconn)",
+        @"ICMP Redirect & Port Blackhole",
+        @"Radio Coexistence (awdl0 & Wi-Fi QoS)"
     ];
-    
-    for (NSDictionary *r in rows) {
+
+    for (NSString *title in rowTitles) {
         UILabel *tLbl = [[UILabel alloc] init];
-        tLbl.text = r[@"t"];
+        tLbl.text = title;
         tLbl.font = [UIFont systemFontOfSize:10 weight:UIFontWeightMedium];
-        tLbl.textColor = [UIColor colorWithWhite:0.5 alpha:1.0];
+        tLbl.textColor = [UIColor colorWithWhite:0.52 alpha:1.0];
         tLbl.adjustsFontSizeToFitWidth = YES;
         tLbl.minimumScaleFactor = 0.75;
         [self.defCard addSubview:tLbl];
         [self.defTLabels addObject:tLbl];
-        
+
         UILabel *vLbl = [[UILabel alloc] init];
-        vLbl.text = r[@"v"];
-        vLbl.font = [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
+        vLbl.text = @"Reading kernel...";
+        vLbl.font = [UIFont monospacedDigitSystemFontOfSize:12 weight:UIFontWeightSemibold];
         vLbl.textColor = [UIColor whiteColor];
         vLbl.adjustsFontSizeToFitWidth = YES;
         vLbl.minimumScaleFactor = 0.75;
-        if ([r[@"t"] containsString:@"Gateway Lock"]) {
-            self.gatewayLabel = vLbl;
-            vLbl.textColor = [UIColor colorWithRed:0.2 green:0.85 blue:1.0 alpha:1.0];
-        } else if ([r[@"t"] containsString:@"Buffer Tuning"]) {
-            self.bufferLabel = vLbl;
-        } else if ([r[@"t"] containsString:@"TSO"]) {
-            self.tsoLabel = vLbl;
-            vLbl.textColor = [UIColor colorWithRed:0.2 green:0.8 blue:1.0 alpha:1.0];
-        } else if ([r[@"t"] containsString:@"Battery"]) {
-            vLbl.textColor = [UIColor colorWithRed:0.3 green:0.95 blue:0.45 alpha:1.0];
-        } else if ([r[@"t"] containsString:@"Anti-Spoof"] || [r[@"t"] containsString:@"Bandwidth"]) {
-            vLbl.textColor = [UIColor colorWithRed:0.3 green:0.9 blue:0.5 alpha:1.0];
-        } else if ([r[@"t"] containsString:@"Stremio"]) {
-            vLbl.textColor = [UIColor colorWithRed:1.0 green:0.7 blue:0.2 alpha:1.0];
-        }
         [self.defCard addSubview:vLbl];
         [self.defVLabels addObject:vLbl];
     }
-    
-    // CARD 4: VIP Apps
+
+    // Card 4: Process Scheduler Priority
     self.vipCard = [[UIView alloc] init];
     self.vipCard.backgroundColor = [UIColor colorWithRed:0.08 green:0.10 blue:0.14 alpha:0.95];
     self.vipCard.layer.cornerRadius = 16;
     self.vipCard.layer.borderWidth = 1.0;
     self.vipCard.layer.borderColor = [UIColor colorWithRed:0.15 green:0.20 blue:0.28 alpha:1.0].CGColor;
     [self.scrollView addSubview:self.vipCard];
-    
+
     self.vipTitle = [[UILabel alloc] init];
-    self.vipTitle.text = @"MEDIA & STREAMING PRIORITY (renice -10)";
+    self.vipTitle.text = @"PROCESS SCHEDULING PRIORITY (setpriority)";
     self.vipTitle.font = [UIFont systemFontOfSize:11 weight:UIFontWeightBold];
-    self.vipTitle.textColor = [UIColor colorWithWhite:0.5 alpha:1.0];
+    self.vipTitle.textColor = [UIColor colorWithWhite:0.52 alpha:1.0];
     self.vipTitle.adjustsFontSizeToFitWidth = YES;
     self.vipTitle.minimumScaleFactor = 0.75;
     [self.vipCard addSubview:self.vipTitle];
-    
+
     self.vipList = [[UILabel alloc] init];
-    self.vipList.text = @"🎬 Stremio • NodeMobile • YouTube • Netflix • Prime Video • Disney+\n🎮 Roblox • Minecraft • Delta • RetroArch • Moonlight • GeForceNOW\n🕹️ Bluetooth Controllers (Xbox, DualSense, Switch Pro, MFi Gamepads)";
+    self.vipList.text = @"Media (-10): mediaserverd, coreaudiod, WebKit, Stremio, YouTube, Netflix, Disney+, Prime Video\nGaming (-10): gamecontrollerd, Moonlight, SteamLink, RetroArch, Delta, Roblox, Minecraft\nBackground (+10): cloudd, nsurlsessiond, appstored, triald, photoanalysisd";
     self.vipList.numberOfLines = 0;
     self.vipList.font = [UIFont systemFontOfSize:11 weight:UIFontWeightMedium];
     self.vipList.textColor = [UIColor colorWithRed:0.85 green:0.9 blue:1.0 alpha:0.9];
     self.vipList.adjustsFontSizeToFitWidth = YES;
     self.vipList.minimumScaleFactor = 0.75;
     [self.vipCard addSubview:self.vipList];
-    
+
     self.vipSub = [[UILabel alloc] init];
-    self.vipSub.text = @"✓ MediaServer and active streaming/gaming processes elevated to high priority.";
-    self.vipSub.font = [UIFont systemFontOfSize:11 weight:UIFontWeightRegular];
+    self.vipSub.text = @"Checking scheduler policy...";
+    self.vipSub.font = [UIFont systemFontOfSize:11 weight:UIFontWeightMedium];
     self.vipSub.textColor = [UIColor colorWithRed:0.3 green:0.85 blue:0.45 alpha:0.9];
     self.vipSub.adjustsFontSizeToFitWidth = YES;
     self.vipSub.minimumScaleFactor = 0.75;
     [self.vipCard addSubview:self.vipSub];
-    
-    // CARD 5: Daemon
+
+    // Card 5: Boot Persistence & Notification Banner
     self.daemonCard = [[UIView alloc] init];
     self.daemonCard.backgroundColor = [UIColor colorWithRed:0.08 green:0.10 blue:0.14 alpha:0.95];
     self.daemonCard.layer.cornerRadius = 16;
     self.daemonCard.layer.borderWidth = 1.0;
     self.daemonCard.layer.borderColor = [UIColor colorWithRed:0.15 green:0.20 blue:0.28 alpha:1.0].CGColor;
     [self.scrollView addSubview:self.daemonCard];
-    
+
     self.dTitle = [[UILabel alloc] init];
-    self.dTitle.text = @"🔔 Notification Bar Quick-Toggle & Sentinel";
+    self.dTitle.text = @"Apply Profile at Boot (LaunchDaemon)";
     self.dTitle.font = [UIFont systemFontOfSize:14 weight:UIFontWeightBold];
     self.dTitle.textColor = [UIColor whiteColor];
     self.dTitle.adjustsFontSizeToFitWidth = YES;
     self.dTitle.minimumScaleFactor = 0.75;
     [self.daemonCard addSubview:self.dTitle];
-    
+
     self.daemonStatusLabel = [[UILabel alloc] init];
-    self.daemonStatusLabel.text = @"Pull down or hold banner in Notification Bar: Streaming • Gaming • Off directly.";
+    self.daemonStatusLabel.text = @"Off: Profile only applies when toggled manually.";
     self.daemonStatusLabel.numberOfLines = 2;
     self.daemonStatusLabel.font = [UIFont systemFontOfSize:11 weight:UIFontWeightMedium];
     self.daemonStatusLabel.textColor = [UIColor colorWithWhite:0.6 alpha:1.0];
     self.daemonStatusLabel.adjustsFontSizeToFitWidth = YES;
     self.daemonStatusLabel.minimumScaleFactor = 0.75;
     [self.daemonCard addSubview:self.daemonStatusLabel];
-    
+
     self.daemonSwitch = [[UISwitch alloc] init];
     [self.daemonSwitch addTarget:self action:@selector(daemonSwitchChanged:) forControlEvents:UIControlEventValueChanged];
     [self.daemonCard addSubview:self.daemonSwitch];
-    
-    // CARD 6: GitHub & Open Source
+
+    self.bannerButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    [self.bannerButton setTitle:@"Show Notification Center Quick-Toggle" forState:UIControlStateNormal];
+    self.bannerButton.titleLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightBold];
+    self.bannerButton.titleLabel.adjustsFontSizeToFitWidth = YES;
+    self.bannerButton.titleLabel.minimumScaleFactor = 0.75;
+    [self.bannerButton setTitleColor:[UIColor colorWithRed:0.85 green:0.92 blue:1.0 alpha:1.0] forState:UIControlStateNormal];
+    self.bannerButton.backgroundColor = [UIColor colorWithRed:0.12 green:0.16 blue:0.24 alpha:0.95];
+    self.bannerButton.layer.cornerRadius = 10;
+    self.bannerButton.layer.borderWidth = 1.0;
+    self.bannerButton.layer.borderColor = [UIColor colorWithRed:0.22 green:0.32 blue:0.46 alpha:0.5].CGColor;
+    [self.bannerButton addTarget:self action:@selector(showBannerTapped:) forControlEvents:UIControlEventTouchUpInside];
+    [self.daemonCard addSubview:self.bannerButton];
+
+    // Card 6: Source Repository
     self.gitCard = [[UIView alloc] init];
     self.gitCard.backgroundColor = [UIColor colorWithRed:0.08 green:0.10 blue:0.14 alpha:0.95];
     self.gitCard.layer.cornerRadius = 16;
     self.gitCard.layer.borderWidth = 1.0;
     self.gitCard.layer.borderColor = [UIColor colorWithRed:0.15 green:0.20 blue:0.28 alpha:1.0].CGColor;
     [self.scrollView addSubview:self.gitCard];
-    
+
     self.gitTitle = [[UILabel alloc] init];
-    self.gitTitle.text = @"👨‍💻 DEVELOPER PROJECTS & OPEN-SOURCE";
+    self.gitTitle.text = @"OPEN SOURCE REPOSITORY";
     self.gitTitle.font = [UIFont systemFontOfSize:11 weight:UIFontWeightBold];
     self.gitTitle.textColor = [UIColor colorWithWhite:0.55 alpha:1.0];
     self.gitTitle.adjustsFontSizeToFitWidth = YES;
     self.gitTitle.minimumScaleFactor = 0.75;
     [self.gitCard addSubview:self.gitTitle];
-    
+
     self.gitButton = [UIButton buttonWithType:UIButtonTypeCustom];
     self.gitButton.backgroundColor = [UIColor colorWithRed:0.12 green:0.15 blue:0.22 alpha:0.95];
     self.gitButton.layer.cornerRadius = 12;
@@ -518,58 +659,71 @@ static NSUInteger get_free_memory_mb(void) {
     self.gitButton.layer.borderColor = [UIColor colorWithRed:0.22 green:0.35 blue:0.52 alpha:0.5].CGColor;
     [self.gitButton addTarget:self action:@selector(openGitHubTapped:) forControlEvents:UIControlEventTouchUpInside];
     [self.gitCard addSubview:self.gitButton];
-    
+
     self.ghIcon = [[UILabel alloc] init];
-    self.ghIcon.text = @"🐙";
-    self.ghIcon.font = [UIFont systemFontOfSize:30];
+    self.ghIcon.text = @"</>";
+    if (@available(iOS 13.0, *)) {
+        self.ghIcon.font = [UIFont monospacedSystemFontOfSize:18 weight:UIFontWeightBold];
+    } else {
+        self.ghIcon.font = [UIFont fontWithName:@"Menlo-Bold" size:18] ?: [UIFont boldSystemFontOfSize:18];
+    }
+    self.ghIcon.textColor = [UIColor colorWithRed:0.2 green:0.85 blue:1.0 alpha:1.0];
     self.ghIcon.textAlignment = NSTextAlignmentCenter;
     [self.gitButton addSubview:self.ghIcon];
-    
+
     self.githubNameLabel = [[UILabel alloc] init];
     self.githubNameLabel.text = @"NightKnight24 (GitHub)";
-    self.githubNameLabel.font = [UIFont boldSystemFontOfSize:16];
+    self.githubNameLabel.font = [UIFont boldSystemFontOfSize:15];
     self.githubNameLabel.textColor = [UIColor whiteColor];
     self.githubNameLabel.adjustsFontSizeToFitWidth = YES;
     self.githubNameLabel.minimumScaleFactor = 0.75;
     [self.gitButton addSubview:self.githubNameLabel];
-    
+
     self.githubSubLabel = [[UILabel alloc] init];
-    self.githubSubLabel.text = @"NightKnight Cinema • Anti-Lag Shield Pro • Open Source";
+    self.githubSubLabel.text = @"github.com/NightKnight24/AntiLagShield • MIT License";
     self.githubSubLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightMedium];
     self.githubSubLabel.textColor = [UIColor colorWithRed:0.0 green:0.82 blue:0.95 alpha:0.9];
     self.githubSubLabel.adjustsFontSizeToFitWidth = YES;
     self.githubSubLabel.minimumScaleFactor = 0.75;
     [self.gitButton addSubview:self.githubSubLabel];
-    
+
     self.arrowLabel = [[UILabel alloc] init];
-    self.arrowLabel.text = @"Visit Profile ↗";
+    self.arrowLabel.text = @"Open ↗";
     self.arrowLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightBold];
     self.arrowLabel.textColor = [UIColor colorWithRed:0.2 green:0.85 blue:1.0 alpha:1.0];
     self.arrowLabel.textAlignment = NSTextAlignmentRight;
     self.arrowLabel.adjustsFontSizeToFitWidth = YES;
     self.arrowLabel.minimumScaleFactor = 0.75;
     [self.gitButton addSubview:self.arrowLabel];
-    
+
     UILongPressGestureRecognizer *ghPress = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(gitButtonLongPressed:)];
     [self.gitButton addGestureRecognizer:ghPress];
-    
-    // Footer
+
     self.footerLabel = [[UILabel alloc] init];
-    self.footerLabel.text = @"Engineered with ❤️ for the Jailbreak & Gaming Community";
+    self.footerLabel.text = @"Anti-Lag Shield v1.0.0 • NightKnight24";
     self.footerLabel.font = [UIFont systemFontOfSize:11 weight:UIFontWeightMedium];
-    self.footerLabel.textColor = [UIColor colorWithWhite:0.4 alpha:1.0];
+    self.footerLabel.textColor = [UIColor colorWithWhite:0.42 alpha:1.0];
     self.footerLabel.textAlignment = NSTextAlignmentCenter;
     self.footerLabel.adjustsFontSizeToFitWidth = YES;
     self.footerLabel.minimumScaleFactor = 0.75;
     [self.scrollView addSubview:self.footerLabel];
-    
-    [self checkDaemonStatus];
-    [self applyShield];
+
     [self updateRAM];
     [self updateBattery];
-    [self updateGatewayLabel];
-    
-    self.telemetryTimer = [NSTimer scheduledTimerWithTimeInterval:2.5 target:self selector:@selector(refreshTelemetry) userInfo:nil repeats:YES];
+    [self refreshKernelSysctlLabels];
+    [self syncFromSystemState];
+
+    self.telemetryTimer = [NSTimer scheduledTimerWithTimeInterval:3.0
+                                                           target:self
+                                                         selector:@selector(refreshTelemetry)
+                                                         userInfo:nil
+                                                          repeats:YES];
+    [self refreshTelemetry];
+}
+
+- (void)appWillEnterForeground {
+    [self refreshTurboUIState];
+    [self syncFromSystemState];
     [self refreshTelemetry];
 }
 
@@ -582,91 +736,82 @@ static NSUInteger get_free_memory_mb(void) {
 - (void)relayoutUI {
     CGFloat width = self.view.bounds.size.width;
     if (width <= 0) return;
-    
-    // Dynamic content width: max 680pt on iPad, full width minus 32pt padding on iPhone
+
     CGFloat contentW = MIN(width - 32.0, 680.0);
     CGFloat startX = (width - contentW) / 2.0;
     CGFloat y = 36.0;
-    
-    // Header
+
     self.iconLabel.frame = CGRectMake(startX, y, contentW, 46);
     y += 50;
-    
+
     self.titleLabel.frame = CGRectMake(startX, y, contentW, 28);
     y += 30;
-    
+
     self.subLabel.frame = CGRectMake(startX, y, contentW, 20);
     y += 28;
-    
+
     CGFloat badgeW = MIN(contentW - 32.0, 270.0);
     self.statusBadge.frame = CGRectMake(startX + (contentW - badgeW) / 2.0, y, badgeW, 32);
     y += 42;
-    
-    self.modeControl.frame = CGRectMake(startX, y, contentW, 40);
-    y += 50;
-    
-    // CARD 1: Live Telemetry & RAM Booster
-    // On narrow screens (< 440pt width), use a 2x2 grid so titles and numbers never truncate!
+
+    self.modeControl.frame = CGRectMake(startX, y, contentW, 38);
+    y += 48;
+
     BOOL isNarrow = (contentW < 440.0);
     CGFloat telemetryH = isNarrow ? 178.0 : 140.0;
     self.telemetryCard.frame = CGRectMake(startX, y, contentW, telemetryH);
-    
+
     if (isNarrow) {
         CGFloat colW = (contentW - 32.0) / 2.0;
-        // Row 1: Gateway & Internet
         self.rTitle.frame = CGRectMake(12, 12, colW, 16);
         self.routerPingLabel.frame = CGRectMake(12, 28, colW, 24);
-        
+
         self.iTitle.frame = CGRectMake(20 + colW, 12, colW, 16);
         self.internetPingLabel.frame = CGRectMake(20 + colW, 28, colW, 24);
-        
-        // Row 2: Battery & RAM
+
         self.bTitle.frame = CGRectMake(12, 60, colW, 16);
         self.batteryLabel.frame = CGRectMake(12, 76, colW, 24);
-        
+
         self.mTitle.frame = CGRectMake(20 + colW, 60, colW, 16);
         self.ramLabel.frame = CGRectMake(20 + colW, 76, colW, 24);
-        
+
         self.purgeButton.frame = CGRectMake(12, 114, contentW - 24, 46);
     } else {
         CGFloat colW = (contentW - 50.0) / 4.0;
         self.rTitle.frame = CGRectMake(12, 14, colW, 18);
         self.routerPingLabel.frame = CGRectMake(12, 34, colW, 26);
-        
+
         self.iTitle.frame = CGRectMake(16 + colW, 14, colW, 18);
         self.internetPingLabel.frame = CGRectMake(16 + colW, 34, colW, 26);
-        
+
         self.bTitle.frame = CGRectMake(20 + colW * 2, 14, colW, 18);
         self.batteryLabel.frame = CGRectMake(20 + colW * 2, 34, colW, 26);
-        
+
         self.mTitle.frame = CGRectMake(24 + colW * 3, 14, colW, 18);
         self.ramLabel.frame = CGRectMake(24 + colW * 3, 34, colW, 26);
-        
+
         self.purgeButton.frame = CGRectMake(12, 76, contentW - 24, 48);
     }
     y += telemetryH + 14.0;
-    
-    // CARD 2: Device Revival & Hardware Acceleration
+
     CGFloat revivalH = 214.0;
     self.revivalCard.frame = CGRectMake(startX, y, contentW, revivalH);
-    
     self.revivalTitle.frame = CGRectMake(16, 12, contentW - 32, 16);
     self.turboTitle.frame = CGRectMake(16, 34, contentW - 85, 20);
     self.turboStatusLabel.frame = CGRectMake(16, 56, contentW - 85, 34);
     self.turboSwitch.frame = CGRectMake(contentW - 65, 38, 51, 31);
     self.cleanStorageButton.frame = CGRectMake(12, 98, contentW - 24, 46);
     self.jetsamRow.frame = CGRectMake(12, 154, contentW - 24, 48);
-    self.jIcon.frame = CGRectMake(10, 12, 24, 24);
-    self.jetsamStatusLabel.frame = CGRectMake(38, 5, contentW - 74, 38);
+    self.jIcon.frame = CGRectMake(10, 12, 22, 24);
+    self.jetsamStatusLabel.frame = CGRectMake(34, 5, contentW - 70, 38);
     y += revivalH + 14.0;
-    
-    // CARD 3: Active Defenses & Protocols
-    CGFloat cfgW = isNarrow ? 95.0 : 120.0;
+
+    CGFloat cfgW = isNarrow ? 98.0 : 120.0;
     self.cfgBtn.frame = CGRectMake(contentW - cfgW - 12.0, 8, cfgW, 26);
-    
+
     CGFloat defH = 12.0 + (self.defTLabels.count * 43.0) + 8.0;
     self.defCard.frame = CGRectMake(startX, y, contentW, defH);
-    
+
     CGFloat dy = 10.0;
     for (NSUInteger i = 0; i < self.defTLabels.count; i++) {
         UILabel *tLbl = self.defTLabels[i];
@@ -677,115 +822,352 @@ static NSUInteger get_free_memory_mb(void) {
         dy += 43.0;
     }
     y += defH + 14.0;
-    
-    // CARD 4: VIP Process Scheduler
-    CGFloat vipH = isNarrow ? 154.0 : 132.0;
+
+    CGFloat vipH = isNarrow ? 156.0 : 134.0;
     self.vipCard.frame = CGRectMake(startX, y, contentW, vipH);
     self.vipTitle.frame = CGRectMake(16, 12, contentW - 32, 16);
-    self.vipList.frame = CGRectMake(16, 32, contentW - 32, isNarrow ? 86 : 66);
-    self.vipSub.frame = CGRectMake(16, isNarrow ? 122 : 102, contentW - 32, 20);
+    self.vipList.frame = CGRectMake(16, 32, contentW - 32, isNarrow ? 88 : 68);
+    self.vipSub.frame = CGRectMake(16, isNarrow ? 124 : 104, contentW - 32, 20);
     y += vipH + 14.0;
-    
-    // CARD 5: Daemon Card
-    CGFloat daemonH = 85.0;
+
+    CGFloat daemonH = 134.0;
     self.daemonCard.frame = CGRectMake(startX, y, contentW, daemonH);
     self.dTitle.frame = CGRectMake(16, 14, contentW - 85, 20);
-    self.daemonStatusLabel.frame = CGRectMake(16, 36, contentW - 85, 36);
-    self.daemonSwitch.frame = CGRectMake(contentW - 65, 26, 51, 31);
+    self.daemonStatusLabel.frame = CGRectMake(16, 36, contentW - 85, 34);
+    self.daemonSwitch.frame = CGRectMake(contentW - 65, 24, 51, 31);
+    self.bannerButton.frame = CGRectMake(12, 80, contentW - 24, 40);
     y += daemonH + 14.0;
-    
-    // CARD 6: GitHub & Open Source
+
     CGFloat gitH = 114.0;
     self.gitCard.frame = CGRectMake(startX, y, contentW, gitH);
     self.gitTitle.frame = CGRectMake(16, 12, contentW - 32, 16);
-    
+
     CGFloat gBtnW = contentW - 24.0;
     self.gitButton.frame = CGRectMake(12, 34, gBtnW, 66);
-    self.ghIcon.frame = CGRectMake(12, 13, 40, 40);
-    
-    CGFloat arrowW = isNarrow ? 32.0 : 90.0;
-    self.arrowLabel.text = isNarrow ? @"↗" : @"Visit Profile ↗";
+    self.ghIcon.frame = CGRectMake(10, 13, 44, 40);
+
+    CGFloat arrowW = isNarrow ? 32.0 : 72.0;
+    self.arrowLabel.text = isNarrow ? @"↗" : @"Open ↗";
     self.arrowLabel.frame = CGRectMake(gBtnW - arrowW - 12.0, 22, arrowW, 22);
-    
+
     CGFloat textW = gBtnW - 60.0 - arrowW - 16.0;
     self.githubNameLabel.frame = CGRectMake(58, 12, textW, 22);
     self.githubSubLabel.frame = CGRectMake(58, 36, textW, 18);
     y += gitH + 14.0;
-    
-    // Footer
+
     self.footerLabel.frame = CGRectMake(startX, y, contentW, 20);
     y += 35.0;
-    
+
     self.scrollView.contentSize = CGSizeMake(width, y + 30.0);
 }
 
-- (void)modeChanged:(UISegmentedControl *)sender {
-    NSString *mode = (sender.selectedSegmentIndex == 0) ? @"streaming" : @"gaming";
-    if (sender.selectedSegmentIndex == 0) {
-        self.tsoLabel.text = @"TSO Enabled (Retina Throughput)";
-        self.tsoLabel.textColor = [UIColor colorWithRed:0.2 green:0.8 blue:1.0 alpha:1.0];
-        self.bufferLabel.text = @"4 MB Smooth Buffer (Adaptive Delayed ACK)";
-        self.statusBadge.text = @"●  STREAMING SENTINEL ACTIVE";
-        self.statusBadge.textColor = [UIColor colorWithRed:0.2 green:0.95 blue:0.4 alpha:1.0];
-        self.statusBadge.backgroundColor = [UIColor colorWithRed:0.06 green:0.22 blue:0.12 alpha:0.9];
+- (void)refreshTurboUIState {
+    BOOL isOn = get_turbo_ui_status();
+    self.turboSwitch.on = isOn;
+    if (isOn) {
+        self.turboStatusLabel.text = @"Enabled: Reduce Motion & Contrast active in SpringBoard.";
+        self.turboStatusLabel.textColor = [UIColor colorWithRed:0.2 green:0.95 blue:0.4 alpha:1.0];
     } else {
-        self.tsoLabel.text = @"TSO Disabled (0ms Bufferbloat Guard)";
-        self.tsoLabel.textColor = [UIColor colorWithRed:0.3 green:0.95 blue:0.4 alpha:1.0];
-        self.bufferLabel.text = @"Instant ACK (0ms) + 2 MB Buffers (somaxconn: 512)";
-        self.statusBadge.text = @"●  GAMING SENTINEL ACTIVE";
+        self.turboStatusLabel.text = @"Disabled: Standard SpringBoard blur & motion animations.";
+        self.turboStatusLabel.textColor = [UIColor colorWithWhite:0.6 alpha:1.0];
+    }
+}
+
+- (void)refreshKernelSysctlLabels {
+    if (self.defVLabels.count < 7) return;
+
+    // 1. TCP Delayed ACK
+    int delayedAck = -1;
+    if (read_sysctl_int("net.inet.tcp.delayed_ack", &delayedAck)) {
+        if (delayedAck == 0) {
+            self.defVLabels[1].text = @"0 — Immediate ACK (0 ms Delay)";
+            self.defVLabels[1].textColor = [UIColor colorWithRed:0.3 green:0.95 blue:0.45 alpha:1.0];
+        } else if (delayedAck == 3) {
+            self.defVLabels[1].text = @"3 — Adaptive RFC 5681";
+            self.defVLabels[1].textColor = [UIColor colorWithRed:0.2 green:0.85 blue:1.0 alpha:1.0];
+        } else {
+            self.defVLabels[1].text = [NSString stringWithFormat:@"%d", delayedAck];
+            self.defVLabels[1].textColor = [UIColor whiteColor];
+        }
+    } else {
+        self.defVLabels[1].text = @"Unavailable";
+    }
+
+    // 2. TCP Segmentation Offload
+    int tso = -1;
+    if (read_sysctl_int("net.inet.tcp.tso", &tso)) {
+        if (tso == 1) {
+            self.defVLabels[2].text = @"Enabled (tso = 1)";
+            self.defVLabels[2].textColor = [UIColor colorWithRed:0.2 green:0.85 blue:1.0 alpha:1.0];
+        } else {
+            self.defVLabels[2].text = @"Disabled (tso = 0, Low-Jitter)";
+            self.defVLabels[2].textColor = [UIColor colorWithRed:0.3 green:0.95 blue:0.45 alpha:1.0];
+        }
+    }
+
+    // 3. Socket Buffers
+    int autoRcvMax = 0, rcvSpace = 0;
+    if (read_sysctl_int("net.inet.tcp.autorcvbufmax", &autoRcvMax) &&
+        read_sysctl_int("net.inet.tcp.recvspace", &rcvSpace)) {
+        double maxMB = (double)autoRcvMax / (1024.0 * 1024.0);
+        int initKB = rcvSpace / 1024;
+        self.defVLabels[3].text = [NSString stringWithFormat:@"%.1f MB Max Auto-Buffer (%d KB Initial)", maxMB, initKB];
+        self.defVLabels[3].textColor = (autoRcvMax >= 4194304)
+            ? [UIColor colorWithRed:0.2 green:0.85 blue:1.0 alpha:1.0]
+            : [UIColor whiteColor];
+    }
+
+    // 4. Listen Queue Backlog
+    int somaxconn = 0;
+    if (read_sysctl_int("kern.ipc.somaxconn", &somaxconn)) {
+        self.defVLabels[4].text = [NSString stringWithFormat:@"%d Sockets", somaxconn];
+        self.defVLabels[4].textColor = (somaxconn >= 512)
+            ? [UIColor colorWithRed:0.3 green:0.95 blue:0.45 alpha:1.0]
+            : [UIColor colorWithWhite:0.75 alpha:1.0];
+    }
+
+    // 5. Blackhole & ICMP Redirect
+    int tcpBh = 0, dropRedir = 0;
+    if (read_sysctl_int("net.inet.tcp.blackhole", &tcpBh) &&
+        read_sysctl_int("net.inet.icmp.drop_redirect", &dropRedir)) {
+        if (tcpBh > 0 && dropRedir > 0) {
+            self.defVLabels[5].text = [NSString stringWithFormat:@"Active (tcp.blackhole = %d, drop_redirect = 1)", tcpBh];
+            self.defVLabels[5].textColor = [UIColor colorWithRed:0.3 green:0.95 blue:0.45 alpha:1.0];
+        } else {
+            self.defVLabels[5].text = @"Disabled (Stock iOS Stack)";
+            self.defVLabels[5].textColor = [UIColor colorWithWhite:0.7 alpha:1.0];
+        }
+    }
+
+    // 6. Radio Coexistence (awdl0 + Wi-Fi QoS)
+    BOOL awdlExists = NO;
+    BOOL awdlUp = is_interface_up("awdl0", &awdlExists);
+    int wifiQos = 0;
+    read_sysctl_int("net.qos.policy.wifi_enabled", &wifiQos);
+    if (awdlExists && !awdlUp) {
+        self.defVLabels[6].text = [NSString stringWithFormat:@"awdl0 Paused (No Scan Stutter) • QoS Policy %d", wifiQos];
+        self.defVLabels[6].textColor = [UIColor colorWithRed:0.3 green:0.95 blue:0.45 alpha:1.0];
+    } else if (awdlExists) {
+        self.defVLabels[6].text = @"awdl0 Active (Standard AirDrop Radio)";
+        self.defVLabels[6].textColor = [UIColor colorWithWhite:0.75 alpha:1.0];
+    } else {
+        self.defVLabels[6].text = [NSString stringWithFormat:@"Wi-Fi QoS Policy = %d", wifiQos];
+    }
+
+    // Card 2 Memorystatus Row
+    int purgeOnWarn = 1;
+    if (read_sysctl_int("kern.memorystatus_purge_on_warning", &purgeOnWarn)) {
+        if (purgeOnWarn == 0) {
+            self.jIcon.textColor = [UIColor colorWithRed:0.3 green:0.95 blue:0.45 alpha:1.0];
+            self.jetsamStatusLabel.text = @"Memorystatus Warning Purge Disabled (purge_on_warning = 0)\nPrevents XNU from flushing cached app pages on memory warning.";
+            self.jetsamStatusLabel.textColor = [UIColor colorWithRed:0.3 green:0.95 blue:0.45 alpha:1.0];
+        } else {
+            self.jIcon.textColor = [UIColor colorWithWhite:0.55 alpha:1.0];
+            self.jetsamStatusLabel.text = @"Stock XNU Memorystatus Policy (purge_on_warning = 1)\nStandard iOS cache eviction on memory pressure.";
+            self.jetsamStatusLabel.textColor = [UIColor colorWithWhite:0.7 alpha:1.0];
+        }
+    }
+}
+
+- (void)applyStatusBadgeForMode:(NSString *)mode bootDaemon:(BOOL)bootDaemon {
+    if ([mode isEqualToString:@"streaming"]) {
+        self.modeControl.selectedSegmentIndex = 0;
+        self.statusBadge.text = bootDaemon ? @"●  STREAMING ACTIVE (BOOT)" : @"●  STREAMING PROFILE ACTIVE";
         self.statusBadge.textColor = [UIColor colorWithRed:0.2 green:0.95 blue:0.4 alpha:1.0];
         self.statusBadge.backgroundColor = [UIColor colorWithRed:0.06 green:0.22 blue:0.12 alpha:0.9];
+        self.vipSub.text = @"Active media & streaming processes prioritized at nice -10.";
+        self.vipSub.textColor = [UIColor colorWithRed:0.3 green:0.85 blue:0.45 alpha:0.9];
+    } else if ([mode isEqualToString:@"gaming"]) {
+        self.modeControl.selectedSegmentIndex = 1;
+        self.statusBadge.text = bootDaemon ? @"●  GAMING ACTIVE (BOOT)" : @"●  GAMING PROFILE ACTIVE";
+        self.statusBadge.textColor = [UIColor colorWithRed:1.0 green:0.68 blue:0.2 alpha:1.0];
+        self.statusBadge.backgroundColor = [UIColor colorWithRed:0.24 green:0.16 blue:0.05 alpha:0.9];
+        self.vipSub.text = @"Active game & controller processes prioritized at nice -10.";
+        self.vipSub.textColor = [UIColor colorWithRed:0.3 green:0.85 blue:0.45 alpha:0.9];
+    } else {
+        self.modeControl.selectedSegmentIndex = 2;
+        self.statusBadge.text = @"●  OFF (STOCK XNU DEFAULTS)";
+        self.statusBadge.textColor = [UIColor colorWithWhite:0.7 alpha:1.0];
+        self.statusBadge.backgroundColor = [UIColor colorWithWhite:0.16 alpha:0.9];
+        self.vipSub.text = @"Inactive: Processes running at default iOS priority (nice 0).";
+        self.vipSub.textColor = [UIColor colorWithWhite:0.6 alpha:1.0];
     }
-    [self applyShield];
+}
+
+- (void)syncFromSystemState {
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        int code = 0;
+        NSString *out = run_exec_capture(shield_ctl_bin(), @[@"status", @"--detail"], &code);
+
+        NSString *mode = @"off";
+        NSString *iface = @"en0";
+        NSString *ip = @"";
+        NSString *mac = @"";
+        NSString *gh = @"";
+        BOOL arpPerm = NO;
+        BOOL bootDaemon = NO;
+
+        for (NSString *line in [out componentsSeparatedByString:@"\n"]) {
+            if ([line hasPrefix:@"MODE="]) {
+                mode = [line substringFromIndex:5];
+            } else if ([line hasPrefix:@"INTERFACE="]) {
+                iface = [line substringFromIndex:10];
+            } else if ([line hasPrefix:@"ROUTER_IP="]) {
+                ip = [line substringFromIndex:10];
+            } else if ([line hasPrefix:@"ROUTER_MAC="]) {
+                mac = [line substringFromIndex:11];
+            } else if ([line hasPrefix:@"ARP_PERMANENT="]) {
+                arpPerm = [[line substringFromIndex:14] intValue] == 1;
+            } else if ([line hasPrefix:@"BOOT_DAEMON="]) {
+                bootDaemon = [[line substringFromIndex:12] intValue] == 1;
+            } else if ([line hasPrefix:@"GITHUB_URL="]) {
+                gh = [line substringFromIndex:11];
+            }
+        }
+
+        dispatch_async(dispatch_get_main_queue(), ^{
+            self.currentGatewayIP = ip;
+
+            if (gh.length > 0) {
+                self.githubURL = gh;
+                if ([gh containsString:@"github.com/"]) {
+                    NSString *tail = [gh componentsSeparatedByString:@"github.com/"].lastObject;
+                    NSString *user = [tail componentsSeparatedByString:@"/"].firstObject;
+                    if (user.length > 0) {
+                        self.githubNameLabel.text = [NSString stringWithFormat:@"%@ (GitHub)", user];
+                    }
+                }
+            }
+
+            if (self.defVLabels.count > 0) {
+                if (ip.length > 0 && mac.length > 0 && arpPerm) {
+                    self.defVLabels[0].text = [NSString stringWithFormat:@"Static Lock: %@ (%@) on %@", ip, mac, iface];
+                    self.defVLabels[0].textColor = [UIColor colorWithRed:0.2 green:0.85 blue:1.0 alpha:1.0];
+                } else if (ip.length > 0) {
+                    self.defVLabels[0].text = [NSString stringWithFormat:@"Dynamic ARP: %@ on %@", ip, iface];
+                    self.defVLabels[0].textColor = [UIColor colorWithWhite:0.75 alpha:1.0];
+                } else {
+                    self.defVLabels[0].text = @"No Default Gateway Detected";
+                    self.defVLabels[0].textColor = [UIColor colorWithRed:1.0 green:0.45 blue:0.45 alpha:1.0];
+                }
+            }
+
+            self.daemonSwitch.on = bootDaemon;
+            if (bootDaemon) {
+                self.daemonStatusLabel.text = @"Enabled: LaunchDaemon applies profile once at boot (0% idle CPU).";
+                self.daemonStatusLabel.textColor = [UIColor colorWithRed:0.2 green:0.95 blue:0.4 alpha:1.0];
+            } else {
+                self.daemonStatusLabel.text = @"Off: Profile only applies when toggled manually.";
+                self.daemonStatusLabel.textColor = [UIColor colorWithWhite:0.6 alpha:1.0];
+            }
+
+            [self applyStatusBadgeForMode:mode bootDaemon:bootDaemon];
+            [self refreshKernelSysctlLabels];
+        });
+    });
+}
+
+- (void)modeChanged:(UISegmentedControl *)sender {
+    NSInteger idx = sender.selectedSegmentIndex;
+    sender.enabled = NO;
+
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
+        int code = 0;
+        NSString *out = nil;
+        if (idx == 0) {
+            out = run_exec_capture(shield_ctl_bin(), @[@"start", @"streaming"], &code);
+        } else if (idx == 1) {
+            out = run_exec_capture(shield_ctl_bin(), @[@"start", @"gaming"], &code);
+        } else {
+            out = run_exec_capture(shield_ctl_bin(), @[@"stop"], &code);
+        }
+
+        dispatch_async(dispatch_get_main_queue(), ^{
+            sender.enabled = YES;
+            if (code != 0) {
+                UIAlertController *errAlert = [UIAlertController alertControllerWithTitle:@"Kernel Update Failed"
+                                                                                  message:(out.length > 0 ? out : @"shield_ctl returned a non-zero exit code.")
+                                                                           preferredStyle:UIAlertControllerStyleAlert];
+                [errAlert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+                [self presentViewController:errAlert animated:YES completion:nil];
+            }
+            [self syncFromSystemState];
+        });
+    });
+}
+
+- (void)showBannerTapped:(UIButton *)sender {
+    notify_post(kShowBannerNotify);
+    [sender setTitle:@"✓ Sent to Notification Center" forState:UIControlStateNormal];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        [sender setTitle:@"Show Notification Center Quick-Toggle" forState:UIControlStateNormal];
+    });
 }
 
 - (void)configGatewayTapped:(UIButton *)sender {
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"⚙️ Gateway Configuration"
-                                                                   message:@"Anti-Lag Shield Pro automatically discovers your router on any Wi-Fi network. You can also specify a custom gateway below."
+    (void)sender;
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Gateway ARP Configuration"
+                                                                   message:@"Leave on Automatic to discover the active router on any Wi-Fi network, or specify a static IPv4 and MAC override."
                                                             preferredStyle:UIAlertControllerStyleAlert];
-    
+
     [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
-        textField.placeholder = @"Gateway IP (e.g. 192.168.1.1 or auto)";
+        textField.placeholder = @"Gateway IPv4 (e.g. 192.168.1.1)";
         textField.keyboardType = UIKeyboardTypeNumbersAndPunctuation;
     }];
     [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
-        textField.placeholder = @"Gateway MAC (e.g. 00:11:22:33:44:55 or auto)";
+        textField.placeholder = @"Gateway MAC (e.g. aa:bb:cc:dd:ee:ff)";
         textField.keyboardType = UIKeyboardTypeASCIICapable;
     }];
-    
-    UIAlertAction *autoAction = [UIAlertAction actionWithTitle:@"Auto-Detect on Any Wi-Fi" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
+
+    UIAlertAction *autoAction = [UIAlertAction actionWithTitle:@"Automatic Detection" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
+        (void)action;
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
-            run_cmd([NSString stringWithFormat:@"%@ config auto", get_shield_ctl_path()]);
+            int code = 0;
+            run_exec_capture(shield_ctl_bin(), @[@"config", @"auto"], &code);
+            if (self.modeControl.selectedSegmentIndex != 2) {
+                NSString *m = (self.modeControl.selectedSegmentIndex == 1) ? @"gaming" : @"streaming";
+                run_exec_capture(shield_ctl_bin(), @[@"start", m], &code);
+            }
             dispatch_async(dispatch_get_main_queue(), ^{
-                [self updateGatewayLabel];
-                [self applyShield];
+                [self syncFromSystemState];
             });
         });
     }];
-    
-    UIAlertAction *saveAction = [UIAlertAction actionWithTitle:@"Save Custom" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
-        NSString *ip = alert.textFields[0].text;
-        NSString *mac = alert.textFields[1].text;
-        if (ip.length > 0 && mac.length > 0) {
-            dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
-                run_cmd([NSString stringWithFormat:@"%@ config set %@ %@", get_shield_ctl_path(), ip, mac]);
-                dispatch_async(dispatch_get_main_queue(), ^{
-                    [self updateGatewayLabel];
-                    [self applyShield];
-                });
+
+    UIAlertAction *saveAction = [UIAlertAction actionWithTitle:@"Save Override" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
+        (void)action;
+        NSString *ip = [alert.textFields[0].text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        NSString *mac = [alert.textFields[1].text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        if (ip.length == 0 || mac.length == 0) return;
+
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
+            int code = 0;
+            NSString *res = run_exec_capture(shield_ctl_bin(), @[@"config", @"set", ip, mac], &code);
+            if (code == 0 && self.modeControl.selectedSegmentIndex != 2) {
+                NSString *m = (self.modeControl.selectedSegmentIndex == 1) ? @"gaming" : @"streaming";
+                run_exec_capture(shield_ctl_bin(), @[@"start", m], &code);
+            }
+            dispatch_async(dispatch_get_main_queue(), ^{
+                if (code != 0) {
+                    UIAlertController *err = [UIAlertController alertControllerWithTitle:@"Invalid Address"
+                                                                                 message:(res.length > 0 ? res : @"Enter a valid IPv4 address and 6-byte colon-separated MAC.")
+                                                                          preferredStyle:UIAlertControllerStyleAlert];
+                    [err addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+                    [self presentViewController:err animated:YES completion:nil];
+                }
+                [self syncFromSystemState];
             });
-        }
+        });
     }];
-    
-    UIAlertAction *cancelAction = [UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil];
-    
+
     [alert addAction:autoAction];
     [alert addAction:saveAction];
-    [alert addAction:cancelAction];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
 }
 
 - (void)openGitHubTapped:(UIButton *)sender {
+    (void)sender;
     NSString *urlStr = (self.githubURL.length > 0) ? self.githubURL : @"https://github.com/NightKnight24";
     if (![urlStr hasPrefix:@"http://"] && ![urlStr hasPrefix:@"https://"]) {
         urlStr = [NSString stringWithFormat:@"https://github.com/%@", urlStr];
@@ -798,93 +1180,61 @@ static NSUInteger get_free_memory_mb(void) {
 
 - (void)gitButtonLongPressed:(UILongPressGestureRecognizer *)gesture {
     if (gesture.state != UIGestureRecognizerStateBegan) return;
-    
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"🐙 GitHub Profile URL"
-                                                                   message:@"Set your personal GitHub profile or repo link to showcase your work:"
+
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Repository URL"
+                                                                   message:@"Configure the GitHub URL opened by this card:"
                                                             preferredStyle:UIAlertControllerStyleAlert];
-    
+
     [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
         textField.text = (self.githubURL.length > 0) ? self.githubURL : @"https://github.com/NightKnight24";
         textField.placeholder = @"https://github.com/username";
         textField.keyboardType = UIKeyboardTypeURL;
     }];
-    
-    UIAlertAction *saveAction = [UIAlertAction actionWithTitle:@"Save & Open" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
-        NSString *newUrl = alert.textFields[0].text;
+
+    UIAlertAction *saveAction = [UIAlertAction actionWithTitle:@"Save" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
+        (void)action;
+        NSString *newUrl = [alert.textFields[0].text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
         if (newUrl.length > 0) {
-            self.githubURL = newUrl;
-            if ([newUrl containsString:@"github.com/"]) {
-                NSString *user = [newUrl componentsSeparatedByString:@"github.com/"].lastObject;
-                if (user.length > 0) {
-                    self.githubNameLabel.text = [NSString stringWithFormat:@"%@ (GitHub)", user];
-                }
-            }
-            dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
-                run_cmd([NSString stringWithFormat:@"%@ config set-github '%@'", get_shield_ctl_path(), newUrl]);
+            dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+                int code = 0;
+                run_exec_capture(shield_ctl_bin(), @[@"config", @"set-github", newUrl], &code);
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [self syncFromSystemState];
+                });
             });
-            [self openGitHubTapped:nil];
         }
     }];
-    
-    UIAlertAction *cancelAction = [UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil];
-    
-    [alert addAction:saveAction];
-    [alert addAction:cancelAction];
-    [self presentViewController:alert animated:YES completion:nil];
-}
 
-- (void)updateGatewayLabel {
-    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        run_cmd([NSString stringWithFormat:@"%@ config show > /tmp/gw_cfg.txt 2>/dev/null", get_shield_ctl_path()]);
-        NSString *cfg = [NSString stringWithContentsOfFile:@"/tmp/gw_cfg.txt" encoding:NSUTF8StringEncoding error:nil];
-        NSString *ip = @"";
-        NSString *mac = @"";
-        NSString *gh = @"";
-        for (NSString *line in [cfg componentsSeparatedByString:@"\n"]) {
-            if ([line hasPrefix:@"ROUTER_IP="]) {
-                ip = [line substringFromIndex:10];
-            } else if ([line hasPrefix:@"ROUTER_MAC="]) {
-                mac = [line substringFromIndex:11];
-            } else if ([line hasPrefix:@"GITHUB_URL="]) {
-                gh = [line substringFromIndex:11];
-            }
-        }
-        dispatch_async(dispatch_get_main_queue(), ^{
-            if (gh.length > 0) {
-                self.githubURL = gh;
-                if ([gh containsString:@"github.com/"]) {
-                    NSString *user = [gh componentsSeparatedByString:@"github.com/"].lastObject;
-                    if (user.length > 0) {
-                        self.githubNameLabel.text = [NSString stringWithFormat:@"%@ (GitHub)", user];
-                    }
-                }
-            }
-            if (ip.length > 0 && mac.length > 0) {
-                self.gatewayLabel.text = [NSString stringWithFormat:@"Locked: %@ (%@)", ip, mac];
-            } else {
-                self.gatewayLabel.text = @"Auto-Detected & Guarded [Permanent]";
-            }
-        });
-    });
+    [alert addAction:saveAction];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:alert animated:YES completion:nil];
 }
 
 - (void)purgeRAMTapped:(UIButton *)sender {
     sender.enabled = NO;
-    NSUInteger beforeMB = get_free_memory_mb();
-    [sender setTitle:@"⚡ Cleaning Inactive Pages..." forState:UIControlStateNormal];
+    NSUInteger beforeMB = get_available_memory_mb();
+    [sender setTitle:@"Purging Inactive Memory..." forState:UIControlStateNormal];
+
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
-        run_cmd([NSString stringWithFormat:@"%@ purge", get_shield_ctl_path()]);
-        NSUInteger afterMB = get_free_memory_mb();
+        int code = 0;
+        run_exec_capture(shield_ctl_bin(), @[@"purge"], &code);
+        NSUInteger afterMB = get_available_memory_mb();
+
         dispatch_async(dispatch_get_main_queue(), ^{
             [self updateRAM];
-            if (afterMB > beforeMB) {
+            if (code != 0) {
+                [sender setTitle:@"Purge Tool Unavailable" forState:UIControlStateNormal];
+            } else if (afterMB > beforeMB) {
                 NSUInteger freed = afterMB - beforeMB;
-                [sender setTitle:[NSString stringWithFormat:@"✓ RAM Purged (+%lu MB Available)", (unsigned long)freed] forState:UIControlStateNormal];
+                [sender setTitle:[NSString stringWithFormat:@"✓ Freed +%lu MB (%lu MB Available)", (unsigned long)freed, (unsigned long)afterMB]
+                        forState:UIControlStateNormal];
             } else {
-                [sender setTitle:@"✓ Inactive Memory Cleared" forState:UIControlStateNormal];
+                [sender setTitle:[NSString stringWithFormat:@"✓ Cache Flushed (%lu MB Available)", (unsigned long)afterMB]
+                        forState:UIControlStateNormal];
             }
+
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                [sender setTitle:@"⚡ Clean Inactive RAM (Purge Cache)" forState:UIControlStateNormal];
+                [sender setTitle:@"Purge Inactive Memory Pages" forState:UIControlStateNormal];
                 sender.enabled = YES;
             });
         });
@@ -892,37 +1242,57 @@ static NSUInteger get_free_memory_mb(void) {
 }
 
 - (void)turboSwitchChanged:(UISwitch *)sender {
-    set_turbo_ui(sender.isOn);
-    if (sender.isOn) {
-        self.turboStatusLabel.text = @"On: GPU blur shaders bypassed • 0ms instant touch response.";
-        self.turboStatusLabel.textColor = [UIColor colorWithRed:0.2 green:0.95 blue:0.4 alpha:1.0];
-    } else {
-        self.turboStatusLabel.text = @"Off: Default Gaussian blurs & spring animations active.";
-        self.turboStatusLabel.textColor = [UIColor colorWithWhite:0.6 alpha:1.0];
+    BOOL ok = set_turbo_ui(sender.isOn);
+    if (!ok) {
+        sender.on = get_turbo_ui_status();
     }
+    [self refreshTurboUIState];
 }
 
 - (void)cleanStorageTapped:(UIButton *)sender {
     sender.enabled = NO;
-    [sender setTitle:@"🧹 Scanning & Purging Flash Bloat..." forState:UIControlStateNormal];
+    [sender setTitle:@"Scanning Diagnostic & Cache Directories..." forState:UIControlStateNormal];
+
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
-        run_cmd([NSString stringWithFormat:@"%@ clean > /tmp/clean_result.txt 2>/dev/null", get_shield_ctl_path()]);
-        NSString *res = [NSString stringWithContentsOfFile:@"/tmp/clean_result.txt" encoding:NSUTF8StringEncoding error:nil];
-        NSString *cleanedMB = @"229.3MB";
-        NSString *cleanedFiles = @"1,000+";
-        if (res && [res containsString:@"CLEANED:"]) {
-            NSArray *parts = [res componentsSeparatedByString:@":"];
+        int code = 0;
+        NSString *res = [run_exec_capture(shield_ctl_bin(), @[@"clean"], &code) stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+
+        NSString *buttonMsg = nil;
+        BOOL success = NO;
+
+        if (code == 0 && [res hasPrefix:@"CLEANED:"]) {
+            NSArray<NSString *> *parts = [res componentsSeparatedByString:@":"];
             if (parts.count >= 3) {
-                cleanedFiles = parts[1];
-                cleanedMB = parts[2];
+                long long fileCount = [parts[1] longLongValue];
+                unsigned long long byteCount = (unsigned long long)[parts[2] longLongValue];
+                success = YES;
+
+                if (fileCount == 0) {
+                    buttonMsg = @"✓ Already Clean (0 Stale Files)";
+                } else if (byteCount < 1024ULL * 1024ULL) {
+                    double kb = (double)byteCount / 1024.0;
+                    buttonMsg = [NSString stringWithFormat:@"✓ Removed %lld %@ (%.1f KB Freed)",
+                                 fileCount, (fileCount == 1 ? @"File" : @"Files"), kb];
+                } else {
+                    double mb = (double)byteCount / (1024.0 * 1024.0);
+                    buttonMsg = [NSString stringWithFormat:@"✓ Removed %lld %@ (%.2f MB Freed)",
+                                 fileCount, (fileCount == 1 ? @"File" : @"Files"), mb];
+                }
             }
         }
+
+        if (!buttonMsg) {
+            buttonMsg = @"Clean Failed (Permission Error)";
+        }
+
         dispatch_async(dispatch_get_main_queue(), ^{
-            [sender setTitle:[NSString stringWithFormat:@"✓ Cleaned %@ Files (+%@ Flash Reclaimed)", cleanedFiles, cleanedMB] forState:UIControlStateNormal];
-            sender.backgroundColor = [UIColor colorWithRed:0.08 green:0.25 blue:0.15 alpha:0.9];
-            sender.layer.borderColor = [UIColor colorWithRed:0.2 green:0.7 blue:0.3 alpha:0.5].CGColor;
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(4.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                [sender setTitle:@"🧹 Deep Clean Flash Storage & Stale Caches" forState:UIControlStateNormal];
+            [sender setTitle:buttonMsg forState:UIControlStateNormal];
+            if (success) {
+                sender.backgroundColor = [UIColor colorWithRed:0.08 green:0.25 blue:0.15 alpha:0.9];
+                sender.layer.borderColor = [UIColor colorWithRed:0.2 green:0.7 blue:0.3 alpha:0.5].CGColor;
+            }
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                [sender setTitle:@"Clear Diagnostic Logs & Expired Caches" forState:UIControlStateNormal];
                 sender.backgroundColor = [UIColor colorWithRed:0.10 green:0.18 blue:0.26 alpha:0.9];
                 sender.layer.borderColor = [UIColor colorWithRed:0.2 green:0.5 blue:0.7 alpha:0.4].CGColor;
                 sender.enabled = YES;
@@ -931,115 +1301,85 @@ static NSUInteger get_free_memory_mb(void) {
     });
 }
 
-- (void)checkDaemonStatus {
-    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        run_cmd([NSString stringWithFormat:@"%@ daemon status > /tmp/daemon_stat.txt 2>/dev/null", get_shield_ctl_path()]);
-        NSString *s = [NSString stringWithContentsOfFile:@"/tmp/daemon_stat.txt" encoding:NSUTF8StringEncoding error:nil];
-        BOOL isActive = [s containsString:@"DAEMON_ACTIVE"];
-        dispatch_async(dispatch_get_main_queue(), ^{
-            self.daemonSwitch.on = isActive;
-            if (isActive) {
-                self.daemonStatusLabel.text = @"On: Persistent 24/7 root daemon active across reboots.";
-                self.statusBadge.text = @"●  24/7 SENTINEL ACTIVE";
-            } else {
-                self.daemonStatusLabel.text = @"Pull down or hold banner in Notification Bar: Streaming • Gaming • Off directly.";
-                self.statusBadge.text = @"●  SENTINEL ACTIVE";
-            }
-        });
-    });
-}
-
 - (void)daemonSwitchChanged:(UISwitch *)sender {
-    NSString *mode = (self.modeControl.selectedSegmentIndex == 0) ? @"streaming" : @"gaming";
-    if (sender.isOn) {
-        self.daemonStatusLabel.text = @"Enabling 24/7 LaunchDaemon...";
-        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
-            run_cmd([NSString stringWithFormat:@"%@ daemon enable %@", get_shield_ctl_path(), mode]);
-            dispatch_async(dispatch_get_main_queue(), ^{
-                self.daemonStatusLabel.text = @"On: Persistent 24/7 root daemon active across reboots.";
-                self.statusBadge.text = @"●  24/7 SENTINEL ACTIVE";
-            });
-        });
-    } else {
-        self.daemonStatusLabel.text = @"Disabling 24/7 LaunchDaemon...";
-        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
-            run_cmd([NSString stringWithFormat:@"%@ daemon disable", get_shield_ctl_path()]);
-            dispatch_async(dispatch_get_main_queue(), ^{
-                self.daemonStatusLabel.text = @"Pull down or hold banner in Notification Bar: Streaming • Gaming • Off directly.";
-                self.statusBadge.text = @"●  SENTINEL ACTIVE";
-                [self applyShield];
-            });
-        });
-    }
-}
+    BOOL wantEnabled = sender.isOn;
+    sender.enabled = NO;
+    NSString *mode = (self.modeControl.selectedSegmentIndex == 1) ? @"gaming" : @"streaming";
 
-- (void)applyShield {
-    NSString *mode = (self.modeControl.selectedSegmentIndex == 0) ? @"streaming" : @"gaming";
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
-        NSString *cmd = [NSString stringWithFormat:@"%@ start %@", get_shield_ctl_path(), mode];
-        run_cmd(cmd);
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [AppDelegate updateNotificationBannerWithMode:mode];
-        });
-    });
-}
-
-- (void)handleExternalModeChange:(NSNotification *)notif {
-    dispatch_async(dispatch_get_main_queue(), ^{
-        NSString *mode = (NSString *)notif.object;
-        if ([mode isEqualToString:@"streaming"]) {
-            self.modeControl.selectedSegmentIndex = 0;
-            self.statusBadge.text = @"●  SENTINEL ACTIVE";
-            self.statusBadge.textColor = [UIColor colorWithRed:0.20 green:0.78 blue:0.35 alpha:1.0];
-        } else if ([mode isEqualToString:@"gaming"]) {
-            self.modeControl.selectedSegmentIndex = 1;
-            self.statusBadge.text = @"●  SENTINEL ACTIVE";
-            self.statusBadge.textColor = [UIColor colorWithRed:0.20 green:0.78 blue:0.35 alpha:1.0];
+        int code = 0;
+        if (wantEnabled) {
+            run_exec_capture(shield_ctl_bin(), @[@"daemon", @"enable", mode], &code);
         } else {
-            self.statusBadge.text = @"●  OFF (STOCK IOS)";
-            self.statusBadge.textColor = [UIColor colorWithWhite:0.6 alpha:1.0];
+            run_exec_capture(shield_ctl_bin(), @[@"daemon", @"disable"], &code);
         }
+
+        dispatch_async(dispatch_get_main_queue(), ^{
+            sender.enabled = YES;
+            [self syncFromSystemState];
+        });
     });
 }
 
 - (void)updateRAM {
-    NSUInteger freeMB = get_free_memory_mb();
-    self.ramLabel.text = [NSString stringWithFormat:@"%lu MB", (unsigned long)freeMB];
+    NSUInteger availMB = get_available_memory_mb();
+    self.ramLabel.text = [NSString stringWithFormat:@"%lu MB", (unsigned long)availMB];
 }
 
 - (void)updateBattery {
     float level = [UIDevice currentDevice].batteryLevel;
-    int percent = (level >= 0.0f) ? (int)(level * 100.0f) : 100;
-    BOOL isCharging = ([UIDevice currentDevice].batteryState == UIDeviceBatteryStateCharging || [UIDevice currentDevice].batteryState == UIDeviceBatteryStateFull);
-    self.batteryLabel.text = [NSString stringWithFormat:@"%d%%%@", percent, isCharging ? @" ⚡" : @""];
+    UIDeviceBatteryState state = [UIDevice currentDevice].batteryState;
+    BOOL isCharging = (state == UIDeviceBatteryStateCharging || state == UIDeviceBatteryStateFull);
+
+    if (level >= 0.0f) {
+        int percent = (int)lroundf(level * 100.0f);
+        self.batteryLabel.text = [NSString stringWithFormat:@"%d%%%@", percent, isCharging ? @" ⚡" : @""];
+        return;
+    }
+
+    BOOL iokitCharging = NO;
+    int iokitPct = query_iokit_battery_percent(&iokitCharging);
+    if (iokitPct >= 0) {
+        self.batteryLabel.text = [NSString stringWithFormat:@"%d%%%@", iokitPct, iokitCharging ? @" ⚡" : @""];
+    } else {
+        self.batteryLabel.text = @"N/A";
+    }
+}
+
+static NSString *parse_ping_ms(NSString *pingOutput, int exitCode) {
+    if (exitCode != 0 || pingOutput.length == 0) {
+        return @"Timeout";
+    }
+    NSRange range = [pingOutput rangeOfString:@"time="];
+    if (range.location == NSNotFound) {
+        return @"Timeout";
+    }
+    NSString *sub = [pingOutput substringFromIndex:range.location + 5];
+    NSArray<NSString *> *parts = [sub componentsSeparatedByCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (parts.count > 0 && parts[0].length > 0) {
+        return [NSString stringWithFormat:@"%.1f ms", [parts[0] doubleValue]];
+    }
+    return @"Timeout";
 }
 
 - (void)refreshTelemetry {
     [self updateRAM];
     [self updateBattery];
+    [self refreshKernelSysctlLabels];
+
+    NSString *gwIP = self.currentGatewayIP;
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW, 0), ^{
-        run_cmd(@"ping -c 1 -W 400 $(route -n get default 2>/dev/null | awk '/gateway:/ {print $2}') > /tmp/rping.txt 2>/dev/null");
-        run_cmd(@"ping -c 1 -W 500 1.1.1.1 > /tmp/iping.txt 2>/dev/null");
-        
-        NSString *rStr = [NSString stringWithContentsOfFile:@"/tmp/rping.txt" encoding:NSUTF8StringEncoding error:nil];
-        NSString *iStr = [NSString stringWithContentsOfFile:@"/tmp/iping.txt" encoding:NSUTF8StringEncoding error:nil];
-        
         NSString *rMs = @"-- ms";
-        if (rStr && [rStr containsString:@"time="]) {
-            NSRange range = [rStr rangeOfString:@"time="];
-            NSString *sub = [rStr substringFromIndex:range.location + range.length];
-            NSArray *parts = [sub componentsSeparatedByString:@" "];
-            if (parts.count > 0) rMs = [NSString stringWithFormat:@"%@ ms", parts[0]];
+        if (gwIP.length > 0) {
+            int rCode = 0;
+            NSString *rOut = run_exec_capture(ping_bin(), @[@"-c", @"1", @"-W", @"400", gwIP], &rCode);
+            rMs = parse_ping_ms(rOut, rCode);
         }
-        
-        NSString *iMs = @"-- ms";
-        if (iStr && [iStr containsString:@"time="]) {
-            NSRange range = [iStr rangeOfString:@"time="];
-            NSString *sub = [iStr substringFromIndex:range.location + range.length];
-            NSArray *parts = [sub componentsSeparatedByString:@" "];
-            if (parts.count > 0) iMs = [NSString stringWithFormat:@"%@ ms", parts[0]];
-        }
-        
+
+        int iCode = 0;
+        NSString *iOut = run_exec_capture(ping_bin(), @[@"-c", @"1", @"-W", @"500", @"1.1.1.1"], &iCode);
+        NSString *iMs = parse_ping_ms(iOut, iCode);
+
         dispatch_async(dispatch_get_main_queue(), ^{
             self.routerPingLabel.text = rMs;
             self.internetPingLabel.text = iMs;
@@ -1047,213 +1387,57 @@ static NSUInteger get_free_memory_mb(void) {
     });
 }
 
-- (void)captureLiveScreenshotPath:(NSString *)path scrollOffset:(CGFloat)offset {
-    self.scrollView.contentOffset = CGPointMake(0, offset);
-    [self.view setNeedsLayout];
-    [self.view layoutIfNeeded];
-    
-    CGSize size = self.view.bounds.size;
-    if (size.width <= 0 || size.height <= 0) {
-        size = [UIScreen mainScreen].bounds.size;
-    }
-    
-    UIGraphicsBeginImageContextWithOptions(size, YES, 0.0);
-    CGContextRef ctx = UIGraphicsGetCurrentContext();
-    [self.view.layer renderInContext:ctx];
-    UIImage *image = UIGraphicsGetImageFromCurrentImageContext();
-    UIGraphicsEndImageContext();
-    
-    if (image) {
-        NSData *pngData = UIImagePNGRepresentation(image);
-        [pngData writeToFile:path atomically:YES];
-    }
-}
-
 @end
 
-
-
-static void log_notif(NSString *format, ...) {
-    va_list args;
-    va_start(args, format);
-    NSString *msg = [[NSString alloc] initWithFormat:format arguments:args];
-    va_end(args);
-    
-    NSString *line = [NSString stringWithFormat:@"[%@] %@\n", [NSDate date], msg];
-    NSString *path = @"/var/tmp/antilag_notif.log";
-    NSFileHandle *handle = [NSFileHandle fileHandleForWritingAtPath:path];
-    if (!handle) {
-        [[NSFileManager defaultManager] createFileAtPath:path contents:[line dataUsingEncoding:NSUTF8StringEncoding] attributes:nil];
-    } else {
-        [handle seekToEndOfFile];
-        [handle writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
-        [handle closeFile];
-    }
-    NSLog(@"[AntiLagShield] %@", msg);
-}
+@interface AppDelegate : UIResponder <UIApplicationDelegate>
+@property (strong, nonatomic) UIWindow *window;
+@end
 
 @implementation AppDelegate
 
-+ (void)updateNotificationBannerWithMode:(NSString *)mode {
-    log_notif(@"updateNotificationBannerWithMode called with mode: %@", mode);
-    UNUserNotificationCenter *center = [UNUserNotificationCenter currentNotificationCenter];
-    
-    [center getNotificationSettingsWithCompletionHandler:^(UNNotificationSettings * _Nonnull settings) {
-        log_notif(@"Current settings: authStatus=%ld (0=notDet, 1=denied, 2=authorized, 3=prov), alertSetting=%ld, soundSetting=%ld", 
-                  (long)settings.authorizationStatus, (long)settings.alertSetting, (long)settings.soundSetting);
-    }];
-    
-    UNMutableNotificationContent *content = [[UNMutableNotificationContent alloc] init];
-    content.title = @"🛡️ Anti-Lag Shield Pro";
-    
-    if ([mode isEqualToString:@"streaming"]) {
-        content.subtitle = @"Current Mode: 🎬 Streaming (Active)";
-        content.body = @"Retina throughput & zero stutter. Hold or pull down banner to toggle.";
-    } else if ([mode isEqualToString:@"gaming"]) {
-        content.subtitle = @"Current Mode: 🎮 Gaming (Active)";
-        content.body = @"0ms instant ACK & anti-bufferbloat active. Hold or pull down banner to toggle.";
-    } else {
-        content.subtitle = @"Status: 🛑 Off (Stock iOS)";
-        content.body = @"Hold or pull down banner to quickly enable Streaming or Gaming.";
-    }
-    
-    content.categoryIdentifier = @"SHIELD_SWITCHER";
-    content.sound = nil;
-    
-    UNNotificationRequest *req = [UNNotificationRequest requestWithIdentifier:@"antilag_shield_banner"
-                                                                      content:content
-                                                                      trigger:nil];
-    [center addNotificationRequest:req withCompletionHandler:^(NSError * _Nullable error) {
-        if (error) {
-            log_notif(@"addNotificationRequest ERROR: %@", error);
-        } else {
-            log_notif(@"addNotificationRequest SUCCESS for mode: %@", mode);
-        }
-    }];
-}
-
-- (void)registerNotificationCategories {
-    UNNotificationAction *streamAction = [UNNotificationAction actionWithIdentifier:@"ACTION_STREAMING"
-                                                                              title:@"🎬 Streaming Mode"
-                                                                            options:UNNotificationActionOptionNone];
-    UNNotificationAction *gameAction = [UNNotificationAction actionWithIdentifier:@"ACTION_GAMING"
-                                                                           title:@"🎮 Gaming Mode"
-                                                                         options:UNNotificationActionOptionNone];
-    UNNotificationAction *offAction = [UNNotificationAction actionWithIdentifier:@"ACTION_OFF"
-                                                                         title:@"🛑 Turn Off"
-                                                                       options:UNNotificationActionOptionDestructive];
-
-    UNNotificationCategory *category = [UNNotificationCategory categoryWithIdentifier:@"SHIELD_SWITCHER"
-                                                                              actions:@[streamAction, gameAction, offAction]
-                                                                    intentIdentifiers:@[]
-                                                                              options:UNNotificationCategoryOptionCustomDismissAction];
-
-    [[UNUserNotificationCenter currentNotificationCenter] setNotificationCategories:[NSSet setWithObject:category]];
-    log_notif(@"registerNotificationCategories completed");
-}
-
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
-    log_notif(@"application:didFinishLaunchingWithOptions: started");
-    
-    self.window = [[UIWindow alloc] initWithFrame:[[UIScreen mainScreen] bounds]];
+    (void)application;
+    (void)launchOptions;
+
+    self.window = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
     self.window.rootViewController = [[ShieldViewController alloc] init];
     [self.window makeKeyAndVisible];
-    
-    [UNUserNotificationCenter currentNotificationCenter].delegate = self;
-    [self registerNotificationCategories];
-    
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        log_notif(@"Requesting notification authorization via UNUserNotificationCenter...");
-        [[UNUserNotificationCenter currentNotificationCenter] requestAuthorizationWithOptions:(UNAuthorizationOptionAlert | UNAuthorizationOptionSound | UNAuthorizationOptionBadge)
-                                                                            completionHandler:^(BOOL granted, NSError * _Nullable error) {
-            log_notif(@"requestAuthorizationWithOptions callback: granted=%d, error=%@", granted, error);
-            dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-                run_cmd([NSString stringWithFormat:@"%@ status > /tmp/curstat.txt 2>/dev/null", get_shield_ctl_path()]);
-                NSString *s = [NSString stringWithContentsOfFile:@"/tmp/curstat.txt" encoding:NSUTF8StringEncoding error:nil];
-                NSString *m = @"off";
-                if ([s containsString:@"streaming"]) m = @"streaming";
-                else if ([s containsString:@"gaming"]) m = @"gaming";
-                dispatch_async(dispatch_get_main_queue(), ^{
-                    [AppDelegate updateNotificationBannerWithMode:m];
-                });
-            });
-        }];
-    });
-    
     return YES;
-}
-
-- (void)userNotificationCenter:(UNUserNotificationCenter *)center
-       willPresentNotification:(UNNotification *)notification
-         withCompletionHandler:(void (^)(UNNotificationPresentationOptions))completionHandler {
-    if (@available(iOS 14.0, *)) {
-        completionHandler(UNNotificationPresentationOptionBanner | UNNotificationPresentationOptionList);
-    } else {
-        completionHandler(UNNotificationPresentationOptionAlert);
-    }
-}
-
-- (void)userNotificationCenter:(UNUserNotificationCenter *)center
-    didReceiveNotificationResponse:(UNNotificationResponse *)response
-             withCompletionHandler:(void (^)(void))completionHandler {
-    NSString *actionId = response.actionIdentifier;
-    log_notif(@"userNotificationCenter:didReceiveNotificationResponse action: %@", actionId);
-    
-    if ([actionId isEqualToString:@"ACTION_STREAMING"]) {
-        run_cmd([NSString stringWithFormat:@"%@ start streaming", get_shield_ctl_path()]);
-        [AppDelegate updateNotificationBannerWithMode:@"streaming"];
-        [[NSNotificationCenter defaultCenter] postNotificationName:@"ShieldModeChangedExternally" object:@"streaming"];
-    } else if ([actionId isEqualToString:@"ACTION_GAMING"]) {
-        run_cmd([NSString stringWithFormat:@"%@ start gaming", get_shield_ctl_path()]);
-        [AppDelegate updateNotificationBannerWithMode:@"gaming"];
-        [[NSNotificationCenter defaultCenter] postNotificationName:@"ShieldModeChangedExternally" object:@"gaming"];
-    } else if ([actionId isEqualToString:@"ACTION_OFF"]) {
-        run_cmd([NSString stringWithFormat:@"%@ stop", get_shield_ctl_path()]);
-        [AppDelegate updateNotificationBannerWithMode:@"off"];
-        [[NSNotificationCenter defaultCenter] postNotificationName:@"ShieldModeChangedExternally" object:@"off"];
-    }
-    
-    completionHandler();
 }
 
 - (BOOL)application:(UIApplication *)app openURL:(NSURL *)url options:(NSDictionary<UIApplicationOpenURLOptionsKey,id> *)options {
+    (void)app;
+    (void)options;
     NSString *host = url.host.lowercaseString;
-    log_notif(@"openURL called with host: %@", host);
-    if ([host isEqualToString:@"banner"]) {
-        [AppDelegate updateNotificationBannerWithMode:@"streaming"];
-        return YES;
-    }
-    if ([host isEqualToString:@"screenshot"]) {
-        ShieldViewController *vc = (ShieldViewController *)self.window.rootViewController;
-        [vc captureLiveScreenshotPath:@"/tmp/antilag_live_top.png" scrollOffset:0.0];
-        CGFloat maxOffset = vc.scrollView.contentSize.height - vc.view.bounds.size.height;
-        if (maxOffset < 0) maxOffset = 0;
-        [vc captureLiveScreenshotPath:@"/tmp/antilag_live_bottom.png" scrollOffset:maxOffset];
-        return YES;
-    }
-    if ([host isEqualToString:@"streaming"]) {
-        run_cmd([NSString stringWithFormat:@"%@ start streaming", get_shield_ctl_path()]);
-        [AppDelegate updateNotificationBannerWithMode:@"streaming"];
-        [[NSNotificationCenter defaultCenter] postNotificationName:@"ShieldModeChangedExternally" object:@"streaming"];
-    } else if ([host isEqualToString:@"gaming"]) {
-        run_cmd([NSString stringWithFormat:@"%@ start gaming", get_shield_ctl_path()]);
-        [AppDelegate updateNotificationBannerWithMode:@"gaming"];
-        [[NSNotificationCenter defaultCenter] postNotificationName:@"ShieldModeChangedExternally" object:@"gaming"];
-    } else if ([host isEqualToString:@"off"] || [host isEqualToString:@"stop"]) {
-        run_cmd([NSString stringWithFormat:@"%@ stop", get_shield_ctl_path()]);
-        [AppDelegate updateNotificationBannerWithMode:@"off"];
-        [[NSNotificationCenter defaultCenter] postNotificationName:@"ShieldModeChangedExternally" object:@"off"];
-    }
-    return YES;
-}
+    if (!host) return NO;
 
-- (void)applicationWillTerminate:(UIApplication *)application {
-    // Keep active in the background! Kernel sysctls remain in effect and notification banner stays active.
+    if ([host isEqualToString:@"banner"]) {
+        notify_post(kShowBannerNotify);
+        return YES;
+    }
+
+    ShieldViewController *vc = (ShieldViewController *)self.window.rootViewController;
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
+        int code = 0;
+        if ([host isEqualToString:@"streaming"]) {
+            run_exec_capture(shield_ctl_bin(), @[@"start", @"streaming"], &code);
+        } else if ([host isEqualToString:@"gaming"]) {
+            run_exec_capture(shield_ctl_bin(), @[@"start", @"gaming"], &code);
+        } else if ([host isEqualToString:@"off"] || [host isEqualToString:@"stop"]) {
+            run_exec_capture(shield_ctl_bin(), @[@"stop"], &code);
+        }
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if ([vc isKindOfClass:[ShieldViewController class]]) {
+                [vc syncFromSystemState];
+            }
+        });
+    });
+    return YES;
 }
 
 @end
 
-int main(int argc, char * argv[]) {
+int main(int argc, char *argv[]) {
     @autoreleasepool {
         return UIApplicationMain(argc, argv, nil, NSStringFromClass([AppDelegate class]));
     }
