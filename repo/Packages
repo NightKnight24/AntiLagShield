@@ -8,8 +8,8 @@ Author: NightKnight24
 Section: System
 Depends: firmware (>= 12.0)
 Filename: debs/com.nightknight.antilagshield_1.0.0_iphoneos-arm64.deb
-Size: 155158
-MD5sum: 191260e8d60074e5f32c8eb5da3e75b1
-SHA1: b13d40b67283da40a5ba17b364d9a0b671bb9597
-SHA256: ca534eecbdf8f4a92684f5b2c572814c99a68649f47010d01b4856cb61d23ce4
+Size: 156546
+MD5sum: ffd3154d3c4729b59a2b713d64f1e88a
+SHA1: e23214958d1e0664943ec3bec2ef526957ccc880
+SHA256: 78152cf508196cd3ad91a0a7c6759d716fbed5ec6ebf13c94f4785a60927386a
 

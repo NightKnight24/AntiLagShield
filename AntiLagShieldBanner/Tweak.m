@@ -584,6 +584,68 @@ static NSString *read_active_mode(void) {
     });
 }
 
+#pragma mark - CoverSheet Adjunct Item Protocol Conformance
+
+- (id)contentHost {
+    return nil;
+}
+
+- (void)setContentHost:(id)host {
+    (void)host;
+}
+
+- (CGSize)sizeToMimic {
+    return CGSizeMake(self.bounds.size.width > 0.0 ? self.bounds.size.width : 425.0, kBannerHeight);
+}
+
+- (void)setSizeToMimic:(CGSize)size {
+    (void)size;
+}
+
+- (UIView *)platterView {
+    return self.blurView ?: self;
+}
+
+- (void)_updateSizeToMimic {
+}
+
+- (BOOL)respondsToSelector:(SEL)aSelector {
+    const char *selName = sel_getName(aSelector);
+    if (strcmp(selName, "contentHost") == 0 ||
+        strcmp(selName, "setContentHost:") == 0 ||
+        strcmp(selName, "sizeToMimic") == 0 ||
+        strcmp(selName, "setSizeToMimic:") == 0 ||
+        strcmp(selName, "_updateSizeToMimic") == 0 ||
+        strcmp(selName, "platterView") == 0) {
+        return YES;
+    }
+    return [super respondsToSelector:aSelector];
+}
+
+- (id)forwardingTargetForSelector:(SEL)aSelector {
+    return nil;
+}
+
+- (NSMethodSignature *)methodSignatureForSelector:(SEL)aSelector {
+    NSMethodSignature *sig = [super methodSignatureForSelector:aSelector];
+    if (!sig) {
+        const char *name = sel_getName(aSelector);
+        if (strcmp(name, "contentHost") == 0 || strcmp(name, "platterView") == 0) {
+            return [NSMethodSignature signatureWithObjCTypes:"@@:"];
+        } else if (strcmp(name, "sizeToMimic") == 0) {
+            return [NSMethodSignature signatureWithObjCTypes:"{CGSize=dd}@:"];
+        } else if (strcmp(name, "setSizeToMimic:") == 0) {
+            return [NSMethodSignature signatureWithObjCTypes:"v@:{CGSize=dd}"];
+        }
+        return [NSMethodSignature signatureWithObjCTypes:"v@:"];
+    }
+    return sig;
+}
+
+- (void)forwardInvocation:(NSInvocation *)anInvocation {
+    // Graceful no-op for any unrecognized CoverSheet adjunct messages
+}
+
 @end
 
 #pragma mark - SpringBoard CoverSheet Adjunct Integration
@@ -857,11 +919,25 @@ static CGSize swz_combined_adjunctSizeSpacing(UIViewController *self, SEL _cmd) 
     return compute_required_stack_size((UIStackView *)adjunctVC.view, orig);
 }
 
+static void (*orig_adjunct_updateItemsSizeToMimic)(id, SEL) = NULL;
+static void swz_adjunct_updateItemsSizeToMimic(UIViewController *self, SEL _cmd) {
+    @try {
+        if (orig_adjunct_updateItemsSizeToMimic) {
+            orig_adjunct_updateItemsSizeToMimic(self, _cmd);
+        }
+    } @catch (NSException *e) {
+        // Prevent any unexpected CoverSheet adjunct sizing exception from crashing SpringBoard
+    }
+}
+
 static void hook_method(Class cls, SEL sel, IMP newImp, IMP *origStore) {
     if (!cls || !sel || !newImp) return;
     Method m = class_getInstanceMethod(cls, sel);
     if (!m) return;
-    IMP prev = method_setImplementation(m, newImp);
+    IMP prev = class_replaceMethod(cls, sel, newImp, method_getTypeEncoding(m));
+    if (!prev) {
+        prev = method_getImplementation(m);
+    }
     if (origStore) {
         *origStore = prev;
     }
@@ -876,6 +952,8 @@ static void install_hooks(void) {
                         (IMP)swz_adjunct_stackViewContentSize, (IMP *)&orig_adjunct_stackViewContentSize);
             hook_method(adjunctCls, sel_registerName("isPresentingContent"),
                         (IMP)swz_adjunct_isPresentingContent, (IMP *)&orig_adjunct_isPresentingContent);
+            hook_method(adjunctCls, sel_registerName("_updateItemsSizeToMimic"),
+                        (IMP)swz_adjunct_updateItemsSizeToMimic, (IMP *)&orig_adjunct_updateItemsSizeToMimic);
         }
 
         Class combinedCls = objc_getClass("CSCombinedListViewController");
